@@ -54,7 +54,7 @@ def contact_keyboard() -> ReplyKeyboardMarkup:
 
 
 WELCOME_TEXT = (
-    "اهلا وسهلا بك في بوت {claud} 🎉🎉\n\n"
+    "اهلا وسهلا بك في بوت {name} 🎉🎉\n\n"
     "⚠️ من اجل منع عمليات الاحتيال داخل المجموعة, يجب التاكيد على رقم الهاتف للمستخدم ⚠️\n\n"
     "اضغط على الزر في الاسفل ⬇️⬇️"
 )
@@ -68,7 +68,7 @@ async def start_handler(message: Message):
         first_name=message.from_user.first_name,
         username=message.from_user.username,
     )
-    bot_name = dbm.get_setting("bot_display_name", "SubmKut")
+    bot_name = dbm.get_setting("bot_display_name", "cloud")
 
     if dbm.has_phone(message.from_user.id):
         if dbm.is_subscribed(message.from_user.id):
