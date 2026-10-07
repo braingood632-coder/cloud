@@ -147,6 +147,32 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'TurnDuration' }, ($, e, next) => next({ ...e, props: { ...e.props, word: 'Channeled' } }))
 
+  // The phone draws no band, spinner or turn line: the replies carry the lantern there.
+  on('ui.render', { component: 'AssistantMessage' }, ($, e, next) => {
+    if (e.surface !== 'mobile' || !e.props.isFirstOfReply || e.props.isSummary) return next(e)
+    const { Box, Text, Svg, Markdown } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column" gap={1}>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Svg source={LANTERN_SVG} alt="Green Lantern" width={3} height={2} />
+          <Text color={GREEN} bold>GREEN LANTERN CORPS · 2814</Text>
+        </Box>
+        <Markdown text={e.props.text} />
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'CommandOutput' }, ($, e, next) => {
+    if (e.surface !== 'mobile' || !['ring', 'ring-new', 'ring-send'].includes(e.props.command)) return next(e)
+    const { Box, Text, Svg } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="row" gap={1} alignItems="center" borderStyle="round" borderColor={GREEN} paddingX={1}>
+        <Svg source={LANTERN_SVG} alt="Green Lantern" width={3} height={2} />
+        <Text color={GREEN}>{e.props.text}</Text>
+      </Box>
+    )
+  })
+
   // The band above the prompt: the lantern, the Corps and the oath.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)

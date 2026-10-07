@@ -37,6 +37,6 @@ Answer `y` to add the marketplace, then pick a scope.
 ## Test
 
 ```
-claude plugin validate green-lantern
-claude plugin test green-lantern
+claude plugin validate .claude/skills/green-lantern
+claude plugin test .claude/skills/green-lantern
 ```

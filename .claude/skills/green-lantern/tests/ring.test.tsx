@@ -83,3 +83,52 @@ test('the phone gets the lantern, the menu button and session picking', async ($
   expect(ran).toBeDefined()
   await ui.unmount()
 })
+
+test('replies on the phone open with the lantern; other blocks pass through', async ($, on) => {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
+
+  const first = await $.ui.mount({
+    plugin: 'green-lantern',
+    surface: 'mobile',
+    component: 'AssistantMessage',
+    requestId: 'msg_1',
+    props: { text: 'In brightest day', isFirstOfReply: true },
+  })
+  expect(await first.find({ type: 'Svg' })).toBeDefined()
+  expect(await first.find({ type: 'Markdown', text: /In brightest day/ })).toBeDefined()
+  await first.unmount()
+
+  const later = await $.ui.mount({
+    plugin: 'green-lantern',
+    surface: 'mobile',
+    component: 'AssistantMessage',
+    requestId: 'msg_2',
+    props: { text: 'more text', isFirstOfReply: false },
+  })
+  expect(await later.find({ type: 'Svg' })).toBeUndefined()
+  expect(await later.find({ type: 'Text', text: 'engine' })).toBeDefined()
+  await later.unmount()
+
+  const desktop = await $.ui.mount({
+    plugin: 'green-lantern',
+    surface: 'desktop',
+    component: 'AssistantMessage',
+    requestId: 'msg_3',
+    props: { text: 'desk', isFirstOfReply: true },
+  })
+  expect(await desktop.find({ type: 'Svg' })).toBeUndefined()
+  await desktop.unmount()
+
+  const card = await $.ui.mount({
+    plugin: 'green-lantern',
+    surface: 'mobile',
+    component: 'CommandOutput',
+    requestId: 'cmd_1',
+    props: { command: 'ring', args: '', text: 'Ring console opened.', isErrored: false },
+  })
+  expect(await card.find({ type: 'Text', text: 'Ring console opened.' })).toBeDefined()
+  await card.unmount()
+})
