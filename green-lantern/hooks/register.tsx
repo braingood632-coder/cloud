@@ -15,6 +15,12 @@ const target = atom({ plugin: 'green-lantern', key: 'target' } as const, null as
 const withContext = atom({ plugin: 'green-lantern', key: 'withContext' } as const, true)
 const status = atom({ plugin: 'green-lantern', key: 'status' } as const, null as string | null)
 
+const LANTERN_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">' +
+  '<rect x="6" y="3" width="28" height="5" fill="#3ce26b"/>' +
+  '<circle cx="20" cy="22" r="11" fill="none" stroke="#3ce26b" stroke-width="5"/>' +
+  '<rect x="6" y="35" width="28" height="4" fill="#3ce26b"/></svg>'
+
 const LANTERN = ['▄▄▄▄▄▄▄', '█▀▀▀▀▀█', '█ ▄▄▄ █', '█ ▀▀▀ █', '▀█▄▄▄█▀']
 
 // Text of an MCP tool result's text blocks, joined.
@@ -108,6 +114,8 @@ async function sendToSession($: EngineInterface, message: string): Promise<void>
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'ring', description: 'Open the Green Lantern ring console' })
+    await $.command.register({ name: 'ring-new', description: 'Start a new session with this task', argumentHint: '<task>' })
+    await $.command.register({ name: 'ring-send', description: 'Send a message to the session picked in /ring', argumentHint: '<message>' })
     void $.ui.open({ id: PANE, title: '💚 Ring' })
     return next(e)
   })
@@ -116,6 +124,19 @@ export const register: Register = on => {
     await $.ui.open({ id: PANE, title: '💚 Ring' })
     await update($, view, () => 'menu')
     return { text: 'Ring console opened.' }
+  })
+
+  // Typed forms of the console's actions, for surfaces with no Input (the phone).
+  on('command.run', { command: 'ring-new' }, async ($, e) => {
+    if (!e.args.trim()) return { text: 'Usage: /ring-new <task>' }
+    await createSession($, e.args)
+    return { text: (await read($, status)) ?? 'Done.' }
+  })
+
+  on('command.run', { command: 'ring-send' }, async ($, e) => {
+    if (!e.args.trim()) return { text: 'Usage: /ring-send <message>' }
+    await sendToSession($, e.args)
+    return { text: (await read($, status)) ?? 'Done.' }
   })
 
   // The spinner and the closing line speak the Corps' language.
@@ -151,8 +172,70 @@ export const register: Register = on => {
   // The ring console: a pane docked on the right, its menu button at the top right.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     if (e.surface === 'mobile') {
-      const { Text } = $.ui.resolve(e)
-      return <Text color={GREEN}>The ring console needs the terminal or desktop app.</Text>
+      const { Box, Text, Button, Svg } = $.ui.resolve(e)
+      const current = await read($, view)
+      const note = await read($, status)
+      const attach = await read($, withContext)
+      const list = await read($, sessions)
+      const chosen = await read($, target)
+
+      return (
+        <Box flexDirection="column" gap={1}>
+          <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Svg source={LANTERN_SVG} alt="Green Lantern" width={5} height={3} />
+              <Text color={GREEN} bold>GREEN LANTERN CORPS · 2814</Text>
+            </Box>
+            <Button
+              key="ring-menu"
+              label={current === 'closed' ? '💍 Menu' : '✕'}
+              variant="primary"
+              onPress={() => update($, view, v => (v === 'closed' ? 'menu' : 'closed'))}
+            />
+          </Box>
+          <Text color={GREEN} italic>{OATH}</Text>
+          {current === 'menu' && (
+            <Box flexDirection="column" gap={1}>
+              <Button key="opt-new" label="1. New session" onPress={() => update($, view, () => 'new')} />
+              <Button
+                key="opt-link"
+                label="2. Link & message an old session"
+                onPress={async () => {
+                  await update($, view, () => 'link')
+                  await refreshSessions($)
+                }}
+              />
+            </Box>
+          )}
+          {current === 'new' && <Text>Type /ring-new followed by the task, then send.</Text>}
+          {current === 'link' && (
+            <Box flexDirection="column" gap={1}>
+              {list.map(s => (
+                <Button
+                  key={`pick-${s.id}`}
+                  label={`${s.id === chosen ? '● ' : '○ '}${s.title}`}
+                  plain
+                  onPress={() => update($, target, () => s.id)}
+                />
+              ))}
+              <Button key="refresh" label="↻ Refresh list" plain onPress={() => refreshSessions($)} />
+              <Text>Pick a session, then type /ring-send followed by your message.</Text>
+            </Box>
+          )}
+          {(current === 'new' || current === 'link') && (
+            <Box flexDirection="column" gap={1}>
+              <Button
+                key="toggle-context"
+                label={attach ? '☑ Attach my session info' : '☐ Attach my session info'}
+                plain
+                onPress={() => update($, withContext, v => !v)}
+              />
+              <Button key="back" label="← Back" plain onPress={() => update($, view, () => 'menu')} />
+            </Box>
+          )}
+          {note && <Text dimColor>{note}</Text>}
+        </Box>
+      )
     }
     const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
     const current = await read($, view)

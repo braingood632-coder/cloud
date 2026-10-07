@@ -12,6 +12,14 @@ A Claude Code mod with a Green Lantern theme:
 
 Open the console any time with `/ring`.
 
+On the phone the console has the lantern, the menu button and session picking.
+The app has no text fields there, so you type with two commands:
+
+- `/ring-new <task>` starts a new session.
+- `/ring-send <message>` messages the session you picked.
+
+Those two commands work on every surface.
+
 ## Install
 
 ```
@@ -22,6 +30,7 @@ Answer `y` to add the marketplace, then pick a scope.
 
 ## Notes
 
+- The header band, spinner words and "Channeled" line show in the terminal and desktop app only; the phone shows the console pane.
 - The pane docks on the right in the fullscreen terminal from 110 columns. Below that it shows above the prompt.
 - New sessions and session messages use the `claude-code-remote` MCP server, which cloud sessions have.
 

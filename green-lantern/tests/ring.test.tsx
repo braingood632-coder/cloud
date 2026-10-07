@@ -52,3 +52,34 @@ test('the ring menu lists old sessions and sends them a message', async ($, on) 
     await ui.unmount()
   }
 })
+
+test('the phone gets the lantern, the menu button and session picking', async ($, on) => {
+  const calls: { tool: string; args: Record<string, unknown> }[] = []
+  on('mcp.call', ($, e) => {
+    calls.push({ tool: e.tool, args: e.args })
+    const text =
+      e.tool === 'list_sessions'
+        ? JSON.stringify({ data: [{ id: 'session_a', title: 'A' }, { id: 'session_b', title: 'B' }] })
+        : JSON.stringify({ ok: true })
+    return { value: { content: [{ type: 'text', text }], isError: false } }
+  })
+  on('session.id', () => ({ value: 'session_here' }))
+  on('session.messages', () => ({ value: [] }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'mobile' })
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  await ui.press({ key: 'ring-menu' })
+  await ui.press({ key: 'opt-link' })
+  await ui.press({ key: 'pick-session_b' })
+
+  const ran = await $.command.run({
+    command: 'ring-send',
+    args: 'hello from the phone',
+    origin: { kind: 'bridge' },
+    presentation: { isFullscreen: false, columns: 40 },
+  })
+  const sent = calls.find(c => c.tool === 'send_message')
+  expect(sent?.args.session_id).toBe('session_b')
+  expect(ran).toBeDefined()
+  await ui.unmount()
+})
