@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>أملاك | تطبيق العقارات</title>
+  <meta name="theme-color" content="#16a34a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --g:#16a34a; --gd:#0f7a37; --p:#7c4dff; --ink:#14201a; --muted:#6b7a72; --bg:#f6f8f7; --line:#e4ebe7; }
+    * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+    body { font-family: "Tajawal", system-ui, sans-serif; background: #dfe6e2; color: var(--ink); }
+    .app { max-width: 480px; min-height: 100vh; margin: auto; background: var(--bg); position: relative; padding: 16px 16px 96px; }
+    .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .logo { width: 44px; height: 44px; border-radius: 12px; }
+    .bell { width: 44px; height: 44px; border-radius: 50%; background: #fff; border: 0; font-size: 1.1rem; box-shadow: 0 2px 8px #0001; }
+    .sub { display: block; width: 100%; padding: 14px; border: 0; border-radius: 18px; color: #fff; font: 700 1.1rem inherit; font-family: inherit; background: linear-gradient(90deg, var(--p), #9b6dff); margin-bottom: 12px; }
+    .ads { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+    .ad { background: #fff; border-radius: 18px; padding: 20px 8px; text-align: center; font-weight: 700; box-shadow: 0 2px 10px #0000000d; }
+    .ad span { display: block; font-size: 1.5rem; opacity: .5; }
+    .search { display: flex; gap: 10px; margin-bottom: 14px; }
+    .search input { flex: 1; border: 0; background: #eef2f0; border-radius: 16px; padding: 12px 16px; font: inherit; }
+    .deep { border: 0; background: #fff; border-radius: 16px; padding: 0 14px; font: 700 .9rem inherit; font-family: inherit; box-shadow: 0 2px 8px #0000000d; }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .seg button { padding: 12px; border-radius: 999px; border: 2px solid var(--line); background: #fff; font: 800 1.1rem inherit; font-family: inherit; }
+    .seg button.on { background: var(--g); border-color: var(--g); color: #fff; }
+    .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+    .chips button { flex: none; padding: 6px 16px; border-radius: 999px; border: 1px solid var(--line); background: #fff; font: 500 .95rem inherit; font-family: inherit; }
+    .chips button.on { background: #dcfce7; border-color: var(--g); color: var(--gd); font-weight: 700; }
+    .list { display: grid; gap: 16px; margin-top: 8px; }
+    .item { background: #fff; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 16px #00000010; }
+    .photo { height: 190px; position: relative; display: grid; place-items: center; font-size: 4rem; }
+    .badge { position: absolute; top: 12px; inset-inline-start: 12px; background: #dcfce7; color: var(--gd); padding: 2px 14px; border-radius: 10px; font-weight: 700; font-size: .85rem; }
+    .kind { position: absolute; bottom: 10px; inset-inline-start: 12px; background: #000a; color: #fff; padding: 0 12px; border-radius: 999px; font-size: .85rem; }
+    .fav { position: absolute; top: 12px; inset-inline-end: 12px; width: 38px; height: 38px; border-radius: 50%; border: 0; background: #ffffffd9; font-size: 1.1rem; }
+    .fav.on { color: #e11d48; }
+    .info { padding: 14px 16px; }
+    .info h3 { font-size: 1.15rem; }
+    .loc { color: var(--muted); font-size: .9rem; }
+    .meta { display: flex; justify-content: space-between; margin-top: 10px; color: var(--muted); font-size: .9rem; }
+    .price { color: var(--g); font-weight: 800; font-size: 1.15rem; }
+    .row { display: flex; justify-content: space-between; align-items: center; }
+    .empty { text-align: center; color: var(--muted); padding: 32px; }
+    .tabs { position: fixed; bottom: 0; inset-inline: 0; max-width: 480px; margin: auto; background: #fff; border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(5, 1fr); padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
+    .tabs a { text-align: center; font-size: .75rem; color: var(--muted); display: grid; gap: 2px; font-size: .75rem; }
+    .tabs a b { font-size: 1.3rem; font-weight: 400; }
+    .tabs a.on { color: var(--g); font-weight: 700; }
+    .tabs .ai b { width: 58px; height: 58px; margin: -26px auto 0; border-radius: 50%; background: var(--g); color: #fff; display: grid; place-items: center; font-size: 1.1rem; font-weight: 800; box-shadow: 0 6px 16px #16a34a66; }
+    .install { position: fixed; top: 12px; inset-inline: 12px; max-width: 456px; margin: auto; z-index: 9; background: #14201a; color: #fff; padding: 12px 16px; border-radius: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .install[hidden] { display: none; }
+    .install button { border: 0; border-radius: 999px; padding: 6px 16px; background: var(--g); color: #fff; font: 700 .9rem inherit; font-family: inherit; }
+  </style>
+</head>
+<body>
+  <div class="install" id="install" hidden><span>ثبّت تطبيق أملاك على جوالك</span><button id="installBtn">تثبيت</button></div>
+  <div class="app">
+    <div class="top">
+      <img class="logo" src="icon.svg" alt="أملاك">
+      <button class="bell" aria-label="الإشعارات">🔔</button>
+    </div>
+    <button class="sub">✨ اشتراك</button>
+    <div class="ads"><div class="ad"><span>📢</span>مساحة إعلانية متاحة</div><div class="ad"><span>📢</span>مساحة إعلانية متاحة</div></div>
+    <div class="search">
+      <input id="q" type="search" placeholder="ابحث عن عقار..." aria-label="بحث">
+      <button class="deep">⚙ البحث العميق</button>
+    </div>
+    <div class="seg" id="mode"><button data-v="sale" class="on">للبيع</button><button data-v="rent">للإيجار</button></div>
+    <div class="chips" id="types"></div>
+    <div class="list" id="list"></div>
+  </div>
+  <nav class="tabs">
+    <a href="#" class="on"><b>🏠</b>الرئيسية</a>
+    <a href="#"><b>🗺</b>الخريطة</a>
+    <a href="#" class="ai"><b>AI</b>بحث AI</a>
+    <a href="#"><b>🏢</b>إدارة عقاري</a>
+    <a href="#"><b>👤</b>حسابي</a>
+  </nav>
+
+  <script>
+    const DATA = [
+      { t: "فيلا فاخرة", type: "فلل", mode: "sale", loc: "الرياض - حي النخيل", price: 3500000, area: 400, rooms: 4, baths: 5, icon: "🏡", bg: "#c7d8f0,#f1d9c4" },
+      { t: "شقة سكنية", type: "شقق", mode: "sale", loc: "الرياض - حي الملقا", price: 1200000, area: 180, rooms: 3, baths: 2, icon: "🏢", bg: "#cbbfe6,#f3d3c7" },
+      { t: "فيلا حديثة", type: "فلل", mode: "sale", loc: "جدة - حي الشاطئ", price: 4500000, area: 450, rooms: 6, baths: 4, icon: "🏡", bg: "#bfe3d0,#e8ddc2" },
+      { t: "شقة للإيجار", type: "شقق", mode: "rent", loc: "الرياض - حي حطين", price: 48000, area: 150, rooms: 3, baths: 2, icon: "🏢", bg: "#d4e4f7,#e9e2f5" },
+      { t: "بيت شعبي", type: "بيوت", mode: "sale", loc: "الدمام - حي الفيصلية", price: 900000, area: 300, rooms: 5, baths: 3, icon: "🏠", bg: "#f0dcc4,#e3eccf" },
+      { t: "أرض سكنية", type: "أراضي", mode: "sale", loc: "الرياض - حي العارض", price: 750000, area: 600, rooms: 0, baths: 0, icon: "🌴", bg: "#dfe9c8,#f1e5c4" },
+      { t: "محل تجاري", type: "تجاري", mode: "rent", loc: "جدة - طريق الملك", price: 120000, area: 90, rooms: 0, baths: 1, icon: "🏬", bg: "#d9d9ef,#f0d8d8" },
+      { t: "مستودع", type: "مستودع", mode: "rent", loc: "الدمام - الصناعية", price: 85000, area: 800, rooms: 0, baths: 1, icon: "🏭", bg: "#d6dde3,#e8e0d0" },
+    ];
+    const TYPES = ["الكل", "شقق", "بيوت", "فلل", "أراضي", "تجاري", "مستودع"];
+    const st = { mode: "sale", type: "الكل", q: "", fav: new Set(JSON.parse(localStorage.getItem("fav") || "[]")) };
+    const $ = (s) => document.querySelector(s);
+    const fmt = (n) => n.toLocaleString("en-US");
+
+    function render() {
+      const items = DATA.map((d, i) => ({ ...d, i })).filter((d) =>
+        d.mode === st.mode && (st.type === "الكل" || d.type === st.type) && (d.t + d.loc).includes(st.q));
+      $("#list").innerHTML = items.length ? items.map((d) => `
+        <article class="item">
+          <div class="photo" style="background:linear-gradient(135deg,${d.bg.split(",")[0]},${d.bg.split(",")[1]})">
+            ${d.icon}<span class="badge">${d.mode === "sale" ? "للبيع" : "للإيجار"}</span>
+            <span class="kind">${d.type}</span>
+            <button class="fav ${st.fav.has(d.i) ? "on" : ""}" data-i="${d.i}" aria-label="مفضلة">${st.fav.has(d.i) ? "♥" : "♡"}</button>
+          </div>
+          <div class="info">
+            <div class="row"><h3>${d.t}</h3><span class="price">${fmt(d.price)} ر.س</span></div>
+            <div class="loc">📍 ${d.loc}</div>
+            <div class="meta"><span>▭ ${d.area} م²</span>${d.rooms ? `<span>🛏 ${d.rooms} غرف</span>` : ""}<span>🚿 ${d.baths} دورات مياه</span></div>
+          </div>
+        </article>`).join("") : '<p class="empty">لا توجد نتائج</p>';
+    }
+    $("#types").innerHTML = TYPES.map((t) => `<button data-t="${t}" class="${t === st.type ? "on" : ""}">${t}</button>`).join("");
+    $("#types").onclick = (e) => { const t = e.target.dataset.t; if (!t) return; st.type = t; [...$("#types").children].forEach((b) => b.classList.toggle("on", b.dataset.t === t)); render(); };
+    $("#mode").onclick = (e) => { const v = e.target.dataset.v; if (!v) return; st.mode = v; [...$("#mode").children].forEach((b) => b.classList.toggle("on", b.dataset.v === v)); render(); };
+    $("#q").oninput = (e) => { st.q = e.target.value.trim(); render(); };
+    $("#list").onclick = (e) => {
+      const i = e.target.dataset.i; if (i === undefined) return;
+      st.fav.has(+i) ? st.fav.delete(+i) : st.fav.add(+i);
+      try { localStorage.setItem("fav", JSON.stringify([...st.fav])); } catch {}
+      render();
+    };
+    render();
+
+    let dp;
+    addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); dp = e; $("#install").hidden = false; });
+    $("#installBtn").onclick = async () => { if (!dp) return; dp.prompt(); await dp.userChoice; dp = null; $("#install").hidden = true; };
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  </script>
+</body>
+</html>

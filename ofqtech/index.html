@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>أفق تك | حلول برمجية ومواقع وتطبيقات</title>
+  <meta name="description" content="أفق تك شركة تقنية تصمم وتطور المواقع والتطبيقات والمنصات الرقمية. تعرّف على أعمالنا.">
+  <meta name="theme-color" content="#0f6b4f">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header" id="top">
+    <div class="container header__inner">
+      <a href="#top" class="brand" aria-label="أفق تك">
+        <img src="assets/logo.svg" alt="" width="38" height="38">
+        <span>أفق تك</span>
+      </a>
+      <nav class="nav" id="nav" aria-label="القائمة الرئيسية">
+        <a href="#home">الرئيسية</a>
+        <a href="#services">خدماتنا</a>
+        <a href="#works">أعمالنا</a>
+        <a href="#why">لماذا نحن</a>
+        <a href="#contact">تواصل معنا</a>
+      </nav>
+      <a href="#contact" class="btn btn--primary header__cta">ابدأ مشروعك</a>
+      <button class="burger" id="burger" aria-label="القائمة" aria-expanded="false"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="home">
+      <div class="container hero__inner">
+        <div class="hero__text reveal">
+          <span class="chip">شريكك التقني في المملكة</span>
+          <h1>نصنع <em>مواقع وتطبيقات</em> ترتقي بأعمالك إلى أفق جديد</h1>
+          <p>نصمم ونبرمج منصات رقمية سريعة وسهلة الاستخدام، من الفكرة إلى الإطلاق، بجودة عالية ودعم مستمر.</p>
+          <div class="hero__actions">
+            <a href="#works" class="btn btn--primary">شاهد أعمالنا</a>
+            <a href="#contact" class="btn btn--ghost">تواصل معنا</a>
+          </div>
+          <ul class="stats">
+            <li><strong>3+</strong><span>منصات منفّذة</span></li>
+            <li><strong>100%</strong><span>عربي ومتجاوب</span></li>
+            <li><strong>24/7</strong><span>دعم فني</span></li>
+          </ul>
+        </div>
+        <div class="hero__visual reveal">
+          <img src="assets/amlak.png" alt="منصة أملاك للعقارات" width="1080" height="714">
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="services">
+      <div class="container">
+        <div class="section__head reveal">
+          <h2>خدماتنا</h2>
+          <p>كل ما تحتاجه لحضور رقمي قوي في مكان واحد.</p>
+        </div>
+        <div class="grid grid--4">
+          <article class="card service reveal"><div class="icon">🌐</div><h3>تصميم المواقع</h3><p>مواقع عصرية متجاوبة مع كل الأجهزة ومهيّأة لمحركات البحث.</p></article>
+          <article class="card service reveal"><div class="icon">📱</div><h3>تطبيقات الجوال</h3><p>تطبيقات PWA وتطبيقات أصلية قابلة للتثبيت بتجربة سلسة.</p></article>
+          <article class="card service reveal"><div class="icon">⚙️</div><h3>أنظمة ولوحات تحكم</h3><p>أنظمة إدارة مخصصة وربط مع قواعد البيانات والدفع.</p></article>
+          <article class="card service reveal"><div class="icon">🤖</div><h3>الذكاء الاصطناعي</h3><p>دمج البحث الذكي والمساعدات الآلية داخل منتجك.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--alt" id="works">
+      <div class="container">
+        <div class="section__head reveal">
+          <h2>أعمالنا</h2>
+          <p>نماذج من المنصات التي طوّرناها.</p>
+        </div>
+        <div class="grid grid--3" id="worksGrid"></div>
+        <div class="install reveal" id="installBox" hidden>
+          <p>جرّب تطبيق «أملاك» على جوالك مباشرة.</p>
+          <button class="btn btn--primary" id="installBtn">ثبّت التطبيق</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="why">
+      <div class="container">
+        <div class="section__head reveal">
+          <h2>لماذا أفق تك؟</h2>
+        </div>
+        <div class="grid grid--3">
+          <article class="card reveal"><h3>سرعة في التنفيذ</h3><p>نسلّم مشاريعك في وقت قياسي دون التضحية بالجودة.</p></article>
+          <article class="card reveal"><h3>تصميم يركّز على المستخدم</h3><p>واجهات عربية RTL واضحة وسهلة الاستخدام.</p></article>
+          <article class="card reveal"><h3>دعم ما بعد الإطلاق</h3><p>نبقى معك للتطوير والصيانة والتحديثات.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--cta" id="contact">
+      <div class="container contact reveal">
+        <h2>جاهز نبدأ مشروعك؟</h2>
+        <p>راسلنا وسنرد عليك في أقرب وقت.</p>
+        <div class="hero__actions">
+          <a class="btn btn--light" href="mailto:info@ofqtech.com">info@ofqtech.com</a>
+          <a class="btn btn--outline" href="https://wa.me/966500000000" target="_blank" rel="noopener">واتساب</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <span>© <span id="year">2026</span> أفق تك. جميع الحقوق محفوظة.</span>
+      <a href="#top">للأعلى ↑</a>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
