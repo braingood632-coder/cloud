@@ -1,0 +1,9 @@
+{
+  "name": "green-lantern",
+  "version": "0.1.0",
+  "description": "Green Lantern theme for Claude Code, with a ring console to start sessions and message old ones",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "braingood632-coder"
+  }
+}
