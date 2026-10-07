@@ -1,0 +1,5 @@
+{
+  "name": "braingood-mods",
+  "owner": { "name": "braingood632-coder" },
+  "plugins": [{ "name": "green-lantern", "source": "./green-lantern" }]
+}
