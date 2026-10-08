@@ -94,8 +94,8 @@ a { color: inherit; text-decoration: none; }
 .work { background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: 0 10px 30px -18px rgba(27,43,75,.35); }
 .work:hover { box-shadow: 0 24px 40px -20px rgba(27,43,75,.45); }
 .work.hide { display: none; }
-.work__img { display: block; aspect-ratio: 4 / 3; overflow: hidden; background: var(--soft); }
-.work__img img { width: 100%; height: 100%; object-fit: cover; object-position: top; transition: transform .6s; }
+.work__img { display: block; aspect-ratio: 1 / 1; overflow: hidden; background: var(--soft); }
+.work__img img { width: 100%; height: 100%; object-fit: cover; object-position: center; transition: transform .6s; }
 .work:hover .work__img img { transform: scale(1.05); }
 .work__body { padding: 18px 22px 22px; }
 .work__body h3 { font-size: 1.3rem; font-weight: 800; }

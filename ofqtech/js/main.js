@@ -1,8 +1,8 @@
 // بيانات الأعمال — عدّل هنا لإضافة أو تغيير مشروع (type: app | web)
 const WORKS = [
-  { title: "قدرات تايم", type: "web", img: "assets/qudurattime-mobile.jpg", url: "https://qudurattime.com" },
-  { title: "أملاك", type: "web", img: "assets/amlak.png", url: "https://amlak-house.web.app/" },
-  { title: "أملاك — التطبيق", type: "app", img: "assets/house-app.png", url: "https://house-48c4f.web.app/" },
+  { title: "قدرات تايم", type: "web", img: "assets/work-qudurat.jpg", url: "https://qudurattime.com" },
+  { title: "أملاك", type: "web", img: "assets/work-amlak-web.jpg", url: "https://amlak-house.web.app/" },
+  { title: "أملاك — التطبيق", type: "app", img: "assets/work-amlak-app.jpg", url: "https://house-48c4f.web.app/" },
 ];
 const TYPE_LABEL = { app: "تطبيق جوال", web: "موقع ومنصة" };
 
