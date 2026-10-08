@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>أفق تك | حلول برمجية ومواقع وتطبيقات</title>
-  <meta name="description" content="أفق تك شركة تقنية تصمم وتطور المواقع والتطبيقات والمنصات الرقمية. تعرّف على أعمالنا.">
-  <meta name="theme-color" content="#0f6b4f">
+  <title>أفق التقنية | شركة برمجة وتطوير تطبيقات ومواقع</title>
+  <meta name="description" content="أفق التقنية Horizon Tech شركة برمجة وتطوير تطبيقات ومواقع في السعودية، من الفكرة إلى تجربة مستخدم استثنائية.">
+  <meta name="theme-color" content="#1b2b4b">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,94 +15,97 @@
 <body>
   <header class="header" id="top">
     <div class="container header__inner">
-      <a href="#top" class="brand" aria-label="أفق تك">
-        <img src="assets/logo.svg" alt="" width="38" height="38">
-        <span>أفق تك</span>
+      <a href="#home" class="brand" aria-label="أفق التقنية Horizon Tech">
+        <img src="assets/logo.svg" alt="" width="46" height="46">
+        <span class="brand__text"><b>أفق التقنية</b><small>Horizon Tech</small></span>
       </a>
       <nav class="nav" id="nav" aria-label="القائمة الرئيسية">
-        <a href="#home">الرئيسية</a>
-        <a href="#services">خدماتنا</a>
-        <a href="#works">أعمالنا</a>
-        <a href="#why">لماذا نحن</a>
+        <a href="#home" class="active">الرئيسية</a>
+        <a href="#about">من نحن</a>
+        <a href="#vision">الرؤية</a>
+        <a href="#services">الخدمات</a>
+        <a href="#journey">الرحلة</a>
+        <a href="#works">الأعمال</a>
         <a href="#contact">تواصل معنا</a>
       </nav>
-      <a href="#contact" class="btn btn--primary header__cta">ابدأ مشروعك</a>
+      <a href="#contact" class="btn btn--gold header__cta">ابدأ مشروعك</a>
       <button class="burger" id="burger" aria-label="القائمة" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
   </header>
+  <div class="scrim" id="scrim"></div>
 
   <main>
     <section class="hero" id="home">
       <div class="container hero__inner">
         <div class="hero__text reveal">
-          <span class="chip">شريكك التقني في المملكة</span>
-          <h1>نصنع <em>مواقع وتطبيقات</em> ترتقي بأعمالك إلى أفق جديد</h1>
-          <p>نصمم ونبرمج منصات رقمية سريعة وسهلة الاستخدام، من الفكرة إلى الإطلاق، بجودة عالية ودعم مستمر.</p>
-          <div class="hero__actions">
-            <a href="#works" class="btn btn--primary">شاهد أعمالنا</a>
-            <a href="#contact" class="btn btn--ghost">تواصل معنا</a>
+          <h1><em>أفق التقنية</em> شركة برمجة وتطوير تطبيقات ومواقع في السعودية<br>من الفكرة إلى تجربة مستخدم استثنائية</h1>
+          <p>نصمم ونبرمج منصات رقمية سريعة وأنيقة وسهلة الاستخدام، ونبقى معك بعد الإطلاق بدعم مستمر.</p>
+          <div class="actions">
+            <a href="#works" class="btn btn--navy">شاهد أعمالنا</a>
+            <a href="#contact" class="btn btn--line">تواصل معنا</a>
           </div>
-          <ul class="stats">
-            <li><strong>3+</strong><span>منصات منفّذة</span></li>
-            <li><strong>100%</strong><span>عربي ومتجاوب</span></li>
-            <li><strong>24/7</strong><span>دعم فني</span></li>
-          </ul>
         </div>
-        <div class="hero__visual reveal">
-          <img src="assets/amlak.png" alt="منصة أملاك للعقارات" width="1080" height="714">
+        <div class="hero__visual reveal" aria-hidden="true">
+          <img class="shot shot--l" src="assets/qudurattime.png" alt="" width="1080" height="713">
+          <img class="shot shot--c" src="assets/house-app.png" alt="" width="1080" height="1614">
+          <img class="shot shot--r" src="assets/amlak.png" alt="" width="1080" height="714">
         </div>
+      </div>
+    </section>
+
+    <section class="section" id="about">
+      <div class="container narrow reveal">
+        <span class="kicker">من نحن</span>
+        <h2>فريق شغوف بصناعة المنتجات الرقمية</h2>
+        <p>أفق التقنية شركة سعودية متخصصة في برمجة وتطوير المواقع والتطبيقات والمنصات. نجمع بين التصميم الأنيق والهندسة المتينة لنحوّل فكرتك إلى منتج حقيقي يخدم عملاءك ويكبر معك.</p>
+      </div>
+    </section>
+
+    <section class="section section--soft" id="vision">
+      <div class="container grid grid--2">
+        <article class="panel reveal"><span class="kicker">الرؤية</span><h3>أن نكون الخيار الأول للتقنية في المملكة</h3><p>نطمح لبناء منتجات عربية بمعايير عالمية، تدعم التحول الرقمي وتفتح آفاقاً جديدة للأعمال.</p></article>
+        <article class="panel reveal"><span class="kicker">القيم</span><h3>جودة، شفافية، التزام</h3><p>نعمل بوضوح مع عملائنا، ونسلّم في الوقت المحدد، ونهتم بأدق تفاصيل تجربة المستخدم.</p></article>
       </div>
     </section>
 
     <section class="section" id="services">
       <div class="container">
-        <div class="section__head reveal">
-          <h2>خدماتنا</h2>
-          <p>كل ما تحتاجه لحضور رقمي قوي في مكان واحد.</p>
-        </div>
+        <div class="head reveal"><span class="kicker">الخدمات</span><h2>ما نقدمه لك</h2></div>
         <div class="grid grid--4">
-          <article class="card service reveal"><div class="icon">🌐</div><h3>تصميم المواقع</h3><p>مواقع عصرية متجاوبة مع كل الأجهزة ومهيّأة لمحركات البحث.</p></article>
-          <article class="card service reveal"><div class="icon">📱</div><h3>تطبيقات الجوال</h3><p>تطبيقات PWA وتطبيقات أصلية قابلة للتثبيت بتجربة سلسة.</p></article>
-          <article class="card service reveal"><div class="icon">⚙️</div><h3>أنظمة ولوحات تحكم</h3><p>أنظمة إدارة مخصصة وربط مع قواعد البيانات والدفع.</p></article>
-          <article class="card service reveal"><div class="icon">🤖</div><h3>الذكاء الاصطناعي</h3><p>دمج البحث الذكي والمساعدات الآلية داخل منتجك.</p></article>
+          <article class="card reveal"><i>🌐</i><h3>تطوير المواقع</h3><p>مواقع ومتاجر ومنصات متجاوبة وسريعة ومهيّأة لمحركات البحث.</p></article>
+          <article class="card reveal"><i>📱</i><h3>تطبيقات الجوال</h3><p>تطبيقات iOS وAndroid وPWA بتجربة استخدام سلسة.</p></article>
+          <article class="card reveal"><i>⚙️</i><h3>الأنظمة ولوحات التحكم</h3><p>أنظمة إدارة مخصصة وربط مع قواعد البيانات والدفع.</p></article>
+          <article class="card reveal"><i>🤖</i><h3>الذكاء الاصطناعي</h3><p>دمج البحث الذكي والمساعدات الآلية داخل منتجك.</p></article>
         </div>
       </div>
     </section>
 
-    <section class="section section--alt" id="works">
+    <section class="section section--navy" id="journey">
       <div class="container">
-        <div class="section__head reveal">
-          <h2>أعمالنا</h2>
-          <p>نماذج من المنصات التي طوّرناها.</p>
-        </div>
+        <div class="head head--light reveal"><span class="kicker">الرحلة</span><h2>من الفكرة إلى الإطلاق</h2></div>
+        <ol class="steps">
+          <li class="reveal"><b>01</b><h3>الفكرة والتحليل</h3><p>نفهم هدفك وجمهورك ونحدد المتطلبات.</p></li>
+          <li class="reveal"><b>02</b><h3>التصميم</h3><p>نصمم واجهات أنيقة وتجربة استخدام واضحة.</p></li>
+          <li class="reveal"><b>03</b><h3>التطوير</h3><p>نبرمج بأحدث التقنيات ونختبر باستمرار.</p></li>
+          <li class="reveal"><b>04</b><h3>الإطلاق والدعم</h3><p>نطلق مشروعك ونبقى معك للتطوير والصيانة.</p></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" id="works">
+      <div class="container">
+        <div class="head reveal"><span class="kicker">الأعمال</span><h2>من أعمالنا</h2></div>
         <div class="grid grid--3" id="worksGrid"></div>
-        <div class="install reveal" id="installBox" hidden>
-          <p>جرّب تطبيق «أملاك» على جوالك مباشرة.</p>
-          <button class="btn btn--primary" id="installBtn">ثبّت التطبيق</button>
-        </div>
       </div>
     </section>
 
-    <section class="section" id="why">
-      <div class="container">
-        <div class="section__head reveal">
-          <h2>لماذا أفق تك؟</h2>
-        </div>
-        <div class="grid grid--3">
-          <article class="card reveal"><h3>سرعة في التنفيذ</h3><p>نسلّم مشاريعك في وقت قياسي دون التضحية بالجودة.</p></article>
-          <article class="card reveal"><h3>تصميم يركّز على المستخدم</h3><p>واجهات عربية RTL واضحة وسهلة الاستخدام.</p></article>
-          <article class="card reveal"><h3>دعم ما بعد الإطلاق</h3><p>نبقى معك للتطوير والصيانة والتحديثات.</p></article>
-        </div>
-      </div>
-    </section>
-
-    <section class="section section--cta" id="contact">
+    <section class="section section--soft" id="contact">
       <div class="container contact reveal">
         <h2>جاهز نبدأ مشروعك؟</h2>
-        <p>راسلنا وسنرد عليك في أقرب وقت.</p>
-        <div class="hero__actions">
-          <a class="btn btn--light" href="mailto:info@ofqtech.com">info@ofqtech.com</a>
-          <a class="btn btn--outline" href="https://wa.me/966500000000" target="_blank" rel="noopener">واتساب</a>
+        <p>تواصل معنا وسنرد عليك في أقرب وقت.</p>
+        <div class="actions actions--center">
+          <a class="btn btn--gold" href="https://wa.me/966535876078" target="_blank" rel="noopener">واتساب: 0535876078</a>
+          <a class="btn btn--navy" href="mailto:lhjf111@gmail.com">lhjf111@gmail.com</a>
         </div>
       </div>
     </section>
@@ -110,7 +113,7 @@
 
   <footer class="footer">
     <div class="container footer__inner">
-      <span>© <span id="year">2026</span> أفق تك. جميع الحقوق محفوظة.</span>
+      <span>© <span id="year">2026</span> أفق التقنية Horizon Tech. جميع الحقوق محفوظة.</span>
       <a href="#top">للأعلى ↑</a>
     </div>
   </footer>

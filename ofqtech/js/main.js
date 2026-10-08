@@ -6,6 +6,7 @@ const WORKS = [
     desc: "منصة اختبارات القدرات العامة: اختبارات محاكية وشرح مبسط لكل قسم.",
     img: "assets/qudurattime.png",
     url: "https://qudurattime.com",
+    label: "زيارة الموقع",
   },
   {
     title: "أملاك",
@@ -13,14 +14,15 @@ const WORKS = [
     desc: "منصة عقارات سعودية مع بحث متقدم وخريطة وإعلانات وذكاء اصطناعي.",
     img: "assets/amlak.png",
     url: "https://amlak-house.web.app/",
+    label: "زيارة الموقع",
   },
   {
     title: "أملاك — التطبيق",
     tag: "تطبيق جوال",
-    desc: "تطبيق عقارات قابل للتثبيت على الجوال: بحث، مفضلة، وتصفح سريع.",
+    desc: "تطبيق عقارات للجوال: بحث، مفضلة، وتصفح سريع.",
     img: "assets/house-app.png",
     url: "https://house-48c4f.web.app/",
-    app: "app/",
+    label: "زيارة التطبيق",
   },
 ];
 
@@ -32,23 +34,21 @@ grid.innerHTML = WORKS.map((w) => `
       <span class="work__tag">${w.tag}</span>
       <h3>${w.title}</h3>
       <p>${w.desc}</p>
-      <div class="work__actions">
-        <a class="btn btn--primary" href="${w.url}" target="_blank" rel="noopener">زيارة الموقع</a>
-        ${w.app ? `<a class="btn btn--ghost" href="${w.app}">جرّب التطبيق</a>` : ""}
-      </div>
+      <a class="btn btn--navy btn--sm" href="${w.url}" target="_blank" rel="noopener">${w.label}</a>
     </div>
   </article>`).join("");
 
 // قائمة الجوال
 const burger = document.getElementById("burger");
 const nav = document.getElementById("nav");
-burger.addEventListener("click", () => {
-  const open = nav.classList.toggle("open");
+const setMenu = (open) => {
+  nav.classList.toggle("open", open);
+  document.body.classList.toggle("menu", open);
   burger.setAttribute("aria-expanded", open);
-});
-nav.addEventListener("click", (e) => {
-  if (e.target.tagName === "A") { nav.classList.remove("open"); burger.setAttribute("aria-expanded", false); }
-});
+};
+burger.addEventListener("click", () => setMenu(!nav.classList.contains("open")));
+document.getElementById("scrim").addEventListener("click", () => setMenu(false));
+nav.addEventListener("click", (e) => { if (e.target.tagName === "A") setMenu(false); });
 
 // ظهور تدريجي
 const io = "IntersectionObserver" in window
@@ -58,20 +58,13 @@ const io = "IntersectionObserver" in window
   : null;
 document.querySelectorAll(".reveal").forEach((el) => (io ? io.observe(el) : el.classList.add("in")));
 
-document.getElementById("year").textContent = new Date().getFullYear();
+// تمييز الرابط النشط أثناء التمرير
+const links = [...nav.querySelectorAll("a")];
+const secs = links.map((a) => document.querySelector(a.getAttribute("href")));
+addEventListener("scroll", () => {
+  let cur = 0;
+  secs.forEach((s, i) => { if (s && s.getBoundingClientRect().top < 140) cur = i; });
+  links.forEach((a, i) => a.classList.toggle("active", i === cur));
+}, { passive: true });
 
-// تثبيت التطبيق (PWA)
-let deferred;
-window.addEventListener("beforeinstallprompt", (e) => {
-  e.preventDefault();
-  deferred = e;
-  document.getElementById("installBox").hidden = false;
-});
-document.getElementById("installBtn").addEventListener("click", async () => {
-  if (!deferred) return;
-  deferred.prompt();
-  await deferred.userChoice;
-  deferred = null;
-  document.getElementById("installBox").hidden = true;
-});
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("app/sw.js", { scope: "app/" }).catch(() => {});
+document.getElementById("year").textContent = new Date().getFullYear();
