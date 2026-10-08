@@ -57,7 +57,7 @@ document.querySelectorAll(".grid, .steps, .vm__item").forEach((group) => {
 const io = "IntersectionObserver" in window
   ? new IntersectionObserver((entries) => entries.forEach((en) => {
       if (en.isIntersecting) { show(en.target); io.unobserve(en.target); }
-    }), { threshold: 0.08, rootMargin: "0px 0px -8% 0px" })
+    }), { threshold: 0.12, rootMargin: "0px 0px -12% 0px" })
   : null;
 document.querySelectorAll(".reveal").forEach((el) => (io ? io.observe(el) : el.classList.add("in")));
 

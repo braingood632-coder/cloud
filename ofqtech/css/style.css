@@ -121,11 +121,18 @@ a { color: inherit; text-decoration: none; }
 .scrim { position: fixed; inset: 0; background: rgba(10,18,36,.45); opacity: 0; pointer-events: none; transition: opacity .3s; z-index: 54; }
 
 /* Scroll reveal (fade up, staggered) */
-.reveal { opacity: 0; transform: translate3d(0, 28px, 0) scale(.985); transition: opacity 1.1s cubic-bezier(.16,1,.3,1) var(--d, 0s), transform 1.1s cubic-bezier(.16,1,.3,1) var(--d, 0s); will-change: opacity, transform; }
+.reveal { opacity: 0; transform: translate3d(0, 60px, 0) scale(.96); transition: opacity .9s ease var(--d, 0s), transform 1.1s cubic-bezier(.22,1,.36,1) var(--d, 0s); will-change: opacity, transform; }
+.svc.reveal, .work.reveal { transform: translate3d(0, 90px, 0) scale(.9); }
+.vm__icon.reveal, .step.reveal .step__ic { transition: transform .9s cubic-bezier(.34,1.56,.64,1) var(--d, 0s), opacity .6s ease var(--d, 0s); }
+.vm__icon.reveal { transform: scale(.3) rotate(-25deg); }
+.step.reveal .step__ic { transform: scale(.5); }
+.title.reveal { transform: translate3d(0, 40px, 0); filter: blur(8px); transition: opacity .9s ease var(--d, 0s), transform 1.1s cubic-bezier(.22,1,.36,1) var(--d, 0s), filter 1s ease var(--d, 0s); }
 .reveal.in { opacity: 1; transform: none; }
+.title.reveal.in { filter: none; }
+.step.reveal.in .step__ic { transform: none; }
+.step.done:hover .step__ic { transform: scale(1.06) rotate(-4deg); }
 .reveal.done { will-change: auto; transition: transform .3s, box-shadow .3s, background .3s; }
 @media (prefers-reduced-motion: reduce) {
-  .reveal { opacity: 1; transform: none; transition: none; }
   .hero__visual img, .wa-float::before { animation: none; }
   html { scroll-behavior: auto; }
 }
