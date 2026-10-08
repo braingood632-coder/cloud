@@ -149,11 +149,22 @@ a { color: inherit; text-decoration: none; }
   .step:not(:last-child)::after { content: "↓"; position: static; display: block; margin-top: 14px; }
   .header__cta { display: none; }
   .burger { display: block; }
-  .nav { position: fixed; top: 0; bottom: 0; inset-inline-start: 0; width: min(78%, 340px); z-index: 58; flex-direction: column; justify-content: center; align-items: center; gap: 8px; margin: 0; background: #fff; box-shadow: 20px 0 50px rgba(10,18,36,.25); font-size: 1.4rem; transform: translateX(105%); transition: transform .35s; }
-  .nav a { padding: 12px 8px; }
-  .nav.open { transform: none; }
+  /* backdrop-filter would make the header the containing block of the fixed drawer */
+  .header { backdrop-filter: none; background: #fff; }
+  .nav { position: fixed; top: 0; bottom: 0; inset-inline-start: 0; width: 60%; min-width: 230px; height: 100dvh; z-index: 58; flex-direction: column; justify-content: center; align-items: center; gap: 6px; margin: 0; background: #fff; box-shadow: -20px 0 50px rgba(10,18,36,.25); font-size: 1.35rem; transform: translateX(105%); visibility: hidden; transition: transform .45s cubic-bezier(.22,1,.36,1), visibility 0s .45s; }
+  .nav a { padding: 12px 8px; opacity: 0; transform: translateX(30px); transition: opacity .35s, transform .45s cubic-bezier(.22,1,.36,1), color .2s; }
+  .nav.open { transform: none; visibility: visible; transition: transform .45s cubic-bezier(.22,1,.36,1); }
+  .nav.open a { opacity: 1; transform: none; }
+  .nav.open a:nth-child(2) { transition-delay: .05s; } .nav.open a:nth-child(3) { transition-delay: .1s; }
+  .nav.open a:nth-child(4) { transition-delay: .15s; } .nav.open a:nth-child(5) { transition-delay: .2s; }
+  .nav.open a:nth-child(6) { transition-delay: .25s; }
+  body.menu { overflow: hidden; }
   body.menu .scrim { opacity: 1; pointer-events: auto; }
   body.menu .burger { position: relative; z-index: 59; }
+  .burger span { transition: transform .3s, opacity .3s; }
+  body.menu .burger span:nth-child(1) { transform: translateY(8px) rotate(45deg); }
+  body.menu .burger span:nth-child(2) { opacity: 0; }
+  body.menu .burger span:nth-child(3) { transform: translateY(-8px) rotate(-45deg); }
 }
 @media (max-width: 600px) {
   .section { padding: 64px 0; }
