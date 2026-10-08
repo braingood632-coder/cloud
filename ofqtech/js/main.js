@@ -4,7 +4,7 @@ const WORKS = [
     title: "قدرات تايم",
     tag: "منصة تعليمية",
     desc: "منصة اختبارات القدرات العامة: اختبارات محاكية وشرح مبسط لكل قسم.",
-    img: "assets/qudurattime.png",
+    img: "assets/qudurattime-mobile.jpg",
     url: "https://qudurattime.com",
     label: "زيارة الموقع",
   },
