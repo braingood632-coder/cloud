@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بنّاء التطبيقات</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#667085; --line:#d9dde3; --accent:#00796b; --accent-text:#fff; --err:#c62828; --ok:#2e7d32; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171b; --card:#1d2126; --text:#e7e9ec; --muted:#98a2b3; --line:#323841; --accent:#26a69a; --accent-text:#06201d; --err:#ef9a9a; --ok:#81c784; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:1.6rem; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-weight:600; margin:0 0 6px; }
+  textarea, input[type=text], input[type=password] { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--text); font:inherit; }
+  textarea { min-height:110px; resize:vertical; }
+  button { font:inherit; font-weight:600; padding:10px 18px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:var(--accent-text); cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { display:flex; align-items:center; gap:6px; padding:6px 12px; border:1px solid var(--line); border-radius:999px; cursor:pointer; user-select:none; }
+  .chip input { margin:0; }
+  #log { background:#0e1013; color:#cfd6df; font:12px/1.5 ui-monospace,Consolas,monospace; direction:ltr; text-align:left; padding:12px; border-radius:8px; height:260px; overflow:auto; white-space:pre-wrap; }
+  .note { color:var(--muted); font-size:.9rem; }
+  .err { color:var(--err); } .ok { color:var(--ok); }
+  a.dl { display:inline-block; padding:10px 18px; border-radius:8px; background:var(--accent); color:var(--accent-text); text-decoration:none; font-weight:600; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>بنّاء التطبيقات</h1>
+  <p class="sub">اكتب وصف التطبيق، وأنا أولّد مشروع أندرويد (Kotlin) وأبني لك ملف APK.</p>
+
+  <div class="card" id="authBox" hidden>
+    <label for="token">رمز الدخول</label>
+    <input type="password" id="token" autocomplete="off">
+  </div>
+
+  <div class="card">
+    <label for="prompt">وصف التطبيق</label>
+    <textarea id="prompt" placeholder="مثال: سوي لي تطبيق قائمة مهام وعداد اسمه مهامي لونه أزرق"></textarea>
+    <p class="note" id="supported"></p>
+    <div class="row"><button id="analyze">حلّل الطلب</button></div>
+  </div>
+
+  <div class="card" id="specBox" hidden>
+    <label for="name">اسم التطبيق</label>
+    <input type="text" id="name" maxlength="30">
+    <label style="margin-top:12px">الشاشات</label>
+    <div class="chips" id="chips"></div>
+    <label for="color" style="margin-top:12px">اللون</label>
+    <input type="color" id="color">
+    <p class="note" id="modeNote"></p>
+    <div class="row" style="margin-top:12px"><button id="build">ابنِ التطبيق</button></div>
+  </div>
+
+  <div class="card" id="jobBox" hidden>
+    <div class="row" style="justify-content:space-between">
+      <strong id="status">...</strong>
+      <span id="links" class="row"></span>
+    </div>
+    <div id="log" style="margin-top:12px"></div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const S = { info: null, parsed: null, mode: 'template' };
+  const STATUS = { queued: 'في الطابور...', building: 'جارٍ البناء...', done: 'جاهز', failed: 'فشل البناء' };
+
+  const tok = () => ($('token').value || localStorage.getItem('ab_token') || '');
+  const headers = () => {
+    const h = { 'content-type': 'application/json' };
+    if (tok()) h.authorization = 'Bearer ' + tok();
+    return h;
+  };
+  async function api(path, body) {
+    const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: headers(), body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+
+  async function init() {
+    S.info = await (await fetch('/api/info')).json();
+    $('authBox').hidden = !S.info.authRequired;
+    $('token').value = localStorage.getItem('ab_token') || '';
+    const names = S.info.components.map(c => c.label.ar).join('، ');
+    $('supported').textContent = 'الأفكار الجاهزة: ' + names + (S.info.llm ? '. الذكاء الاصطناعي مفعّل لأي فكرة أخرى.' : '.');
+  }
+
+  function renderSpec(p) {
+    S.parsed = p;
+    $('specBox').hidden = false;
+    $('name').value = p.spec.name;
+    $('color').value = p.spec.color;
+    const chips = $('chips');
+    chips.textContent = '';
+    for (const c of S.info.components) {
+      const l = document.createElement('label');
+      l.className = 'chip';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = c.id;
+      cb.checked = p.spec.components.includes(c.id);
+      l.append(cb, document.createTextNode(c.label.ar));
+      chips.append(l);
+    }
+    if (p.matched) {
+      S.mode = 'template';
+      $('modeNote').textContent = 'تم فهم الطلب. عدّل الاختيارات إن أردت ثم ابنِ.';
+    } else if (S.info.llm) {
+      S.mode = 'llm';
+      $('modeNote').textContent = 'فكرة غير جاهزة؛ سيكتب الذكاء الاصطناعي (' + S.info.llm + ') التطبيق، وقد يستغرق البناء وقتاً أطول.';
+    } else {
+      S.mode = 'template';
+      $('modeNote').textContent = 'لم أفهم الفكرة. اختر الشاشات يدوياً من القائمة أعلاه، أو فعّل مفتاح ذكاء اصطناعي في السيرفر.';
+    }
+  }
+
+  $('analyze').onclick = async () => {
+    const prompt = $('prompt').value.trim();
+    if (!prompt) return;
+    localStorage.setItem('ab_token', tok());
+    try { renderSpec(await api('/api/parse', { prompt })); }
+    catch (e) { alert(e.message); }
+  };
+
+  $('build').onclick = async () => {
+    const picked = [...document.querySelectorAll('#chips input:checked')].map(i => i.value);
+    const spec = { ...S.parsed.spec, name: $('name').value, color: $('color').value, components: picked };
+    const mode = S.mode === 'llm' && picked.length === 0 ? 'llm' : 'template';
+    $('build').disabled = true;
+    try {
+      const job = await api('/api/build', { prompt: $('prompt').value, spec, mode });
+      follow(job.id);
+    } catch (e) { alert(e.message); $('build').disabled = false; }
+  };
+
+  function follow(id) {
+    $('jobBox').hidden = false;
+    $('log').textContent = '';
+    $('links').textContent = '';
+    const q = tok() ? '?token=' + encodeURIComponent(tok()) : '';
+    const es = new EventSource('/api/jobs/' + id + '/events' + q);
+    es.onmessage = async (m) => {
+      const ev = JSON.parse(m.data);
+      if (ev.type === 'log') {
+        const log = $('log');
+        log.append(document.createTextNode(ev.line + '\n'));
+        log.scrollTop = log.scrollHeight;
+      } else if (ev.type === 'status') {
+        $('status').textContent = STATUS[ev.status] || ev.status;
+        $('status').className = ev.status === 'failed' ? 'err' : ev.status === 'done' ? 'ok' : '';
+        if (ev.status === 'done' || ev.status === 'failed') {
+          es.close();
+          $('build').disabled = false;
+          const j = await api('/api/jobs/' + id);
+          addLinks(id, j, q);
+        }
+      }
+    };
+    es.onerror = () => { es.close(); $('build').disabled = false; };
+  }
+
+  function addLinks(id, j, q) {
+    const box = $('links');
+    box.textContent = '';
+    if (j.hasApk) {
+      const a = document.createElement('a');
+      a.className = 'dl'; a.href = '/api/jobs/' + id + '/apk' + q; a.textContent = 'تحميل APK';
+      box.append(a);
+    }
+    if (j.hasProject) {
+      const a = document.createElement('a');
+      a.className = 'dl'; a.style.opacity = '.8'; a.href = '/api/jobs/' + id + '/project' + q; a.textContent = 'الكود المصدري';
+      box.append(a);
+    }
+  }
+
+  init().catch(e => { $('supported').textContent = 'تعذر الاتصال بالسيرفر: ' + e.message; });
+})();
+</script>
+</body>
+</html>

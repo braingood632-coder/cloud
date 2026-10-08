@@ -1,0 +1,12 @@
+{
+  "name": "app-builder",
+  "version": "0.1.0",
+  "description": "Describe an Android app in Arabic or English; get a Kotlin/Compose project and a debug APK.",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/src/index.js",
+    "test": "node --test \"test/*.test.js\""
+  }
+}
