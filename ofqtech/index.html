@@ -13,6 +13,10 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="wa" viewBox="0 0 32 32"><path fill="currentColor" d="M16 3C8.8 3 3 8.7 3 15.8c0 2.5.7 4.9 2 7L3 29l6.4-2c2 1.1 4.3 1.7 6.6 1.7 7.2 0 13-5.7 13-12.8S23.2 3 16 3zm0 23.4c-2.1 0-4.2-.6-5.9-1.7l-.4-.3-3.8 1.2 1.2-3.7-.3-.4c-1.2-1.8-1.9-3.9-1.9-6.1C4.9 9.8 9.9 5 16 5s11.1 4.8 11.1 10.8S22.1 26.4 16 26.4zm6.1-8.1c-.3-.2-2-1-2.3-1.1-.3-.1-.5-.2-.8.2-.2.3-.9 1.1-1.1 1.3-.2.2-.4.2-.7.1-.3-.2-1.4-.5-2.7-1.7-1-.9-1.7-2-1.9-2.3-.2-.3 0-.5.1-.7l.5-.6c.2-.2.2-.3.3-.6.1-.2 0-.4 0-.6l-1-2.5c-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-.9.4-.3.3-1.2 1.1-1.2 2.8s1.2 3.2 1.4 3.5c.2.2 2.4 3.6 5.8 5 .8.3 1.4.5 1.9.7.8.3 1.6.2 2.2.1.7-.1 2-.8 2.3-1.6.3-.8.3-1.4.2-1.6-.1-.2-.3-.2-.6-.4z"/></symbol>
+  </svg>
+
   <header class="header" id="top">
     <div class="container header__inner">
       <a href="#home" class="brand" aria-label="أفق التقنية Horizon Tech">
@@ -21,7 +25,6 @@
       </a>
       <nav class="nav" id="nav" aria-label="القائمة الرئيسية">
         <a href="#home" class="active">الرئيسية</a>
-        <a href="#about">من نحن</a>
         <a href="#vision">الرؤية</a>
         <a href="#services">الخدمات</a>
         <a href="#journey">الرحلة</a>
@@ -37,14 +40,6 @@
   <main>
     <section class="hero" id="home">
       <div class="container hero__inner">
-        <div class="hero__text reveal">
-          <h1><em>أفق التقنية</em> شركة برمجة وتطوير تطبيقات ومواقع في السعودية<br>من الفكرة إلى تجربة مستخدم استثنائية</h1>
-          <p>نصمم ونبرمج منصات رقمية سريعة وأنيقة وسهلة الاستخدام، ونبقى معك بعد الإطلاق بدعم مستمر.</p>
-          <div class="actions">
-            <a href="#works" class="btn btn--navy">شاهد أعمالنا</a>
-            <a href="#contact" class="btn btn--line">تواصل معنا</a>
-          </div>
-        </div>
         <div class="hero__visual reveal" aria-hidden="true">
           <div class="laptop">
             <div class="laptop__screen"><img src="assets/qudurattime-mobile.jpg" alt="" width="1080" height="2047"></div>
@@ -52,61 +47,73 @@
           </div>
           <div class="phone phone--c"><img src="assets/amlak-phone.jpg" alt="" width="656" height="1478"></div>
         </div>
-      </div>
-    </section>
-
-    <section class="section" id="about">
-      <div class="container narrow reveal">
-        <span class="kicker">من نحن</span>
-        <h2>فريق شغوف بصناعة المنتجات الرقمية</h2>
-        <p>أفق التقنية شركة سعودية متخصصة في برمجة وتطوير المواقع والتطبيقات والمنصات. نجمع بين التصميم الأنيق والهندسة المتينة لنحوّل فكرتك إلى منتج حقيقي يخدم عملاءك ويكبر معك.</p>
-      </div>
-    </section>
-
-    <section class="section section--soft" id="vision">
-      <div class="container grid grid--2">
-        <article class="panel reveal"><span class="kicker">الرؤية</span><h3>أن نكون الخيار الأول للتقنية في المملكة</h3><p>نطمح لبناء منتجات عربية بمعايير عالمية، تدعم التحول الرقمي وتفتح آفاقاً جديدة للأعمال.</p></article>
-        <article class="panel reveal"><span class="kicker">القيم</span><h3>جودة، شفافية، التزام</h3><p>نعمل بوضوح مع عملائنا، ونسلّم في الوقت المحدد، ونهتم بأدق تفاصيل تجربة المستخدم.</p></article>
-      </div>
-    </section>
-
-    <section class="section" id="services">
-      <div class="container">
-        <div class="head reveal"><span class="kicker">الخدمات</span><h2>ما نقدمه لك</h2></div>
-        <div class="grid grid--4">
-          <article class="card reveal"><i>🌐</i><h3>تطوير المواقع</h3><p>مواقع ومتاجر ومنصات متجاوبة وسريعة ومهيّأة لمحركات البحث.</p></article>
-          <article class="card reveal"><i>📱</i><h3>تطبيقات الجوال</h3><p>تطبيقات iOS وAndroid وPWA بتجربة استخدام سلسة.</p></article>
-          <article class="card reveal"><i>⚙️</i><h3>الأنظمة ولوحات التحكم</h3><p>أنظمة إدارة مخصصة وربط مع قواعد البيانات والدفع.</p></article>
-          <article class="card reveal"><i>🤖</i><h3>الذكاء الاصطناعي</h3><p>دمج البحث الذكي والمساعدات الآلية داخل منتجك.</p></article>
+        <div class="hero__text">
+          <h1 class="reveal"><em>أفق التقنية</em> شركة برمجة وتطوير تطبيقات ومواقع في السعودية<br>من الفكرة إلى تجربة مستخدم استثنائية</h1>
+          <div class="reveal"><a href="#contact" class="btn btn--gold btn--lg">تواصل معنا <span aria-hidden="true">←</span></a></div>
         </div>
       </div>
     </section>
 
-    <section class="section section--navy" id="journey">
+    <section class="section vm" id="vision">
       <div class="container">
-        <div class="head head--light reveal"><span class="kicker">الرحلة</span><h2>من الفكرة إلى الإطلاق</h2></div>
+        <h2 class="title reveal">الرؤية و المهمة</h2>
+        <div class="vm__grid">
+          <article class="vm__item">
+            <svg class="vm__icon reveal" viewBox="0 0 48 48" aria-hidden="true"><path d="M3 24s8-13 21-13 21 13 21 13-8 13-21 13S3 24 3 24z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><circle cx="24" cy="24" r="6.5" fill="none" stroke="currentColor" stroke-width="3"/></svg>
+            <h3 class="reveal">رؤيتنا</h3>
+            <p class="reveal">أن نكون الشريك الرقمي الموثوق في تقديم حلول البرمجة والتصميم والتسويق، لصناعة تجارب رقمية مؤثرة ونمو مستدام.</p>
+          </article>
+          <article class="vm__item">
+            <svg class="vm__icon reveal" viewBox="0 0 48 48" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="3"><circle cx="15" cy="15" r="8"/><circle cx="33" cy="15" r="8"/><circle cx="15" cy="33" r="8"/><circle cx="33" cy="33" r="8"/></g></svg>
+            <h3 class="reveal">مهمتنا</h3>
+            <p class="reveal">تقديم حلول رقمية متكاملة تجمع بين البرمجة الاحترافية، تصميم UI/UX المبتكر والتسويق الذكي، لمساعدة العلامات التجارية على التميّز وتحقيق أهدافها.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section services" id="services">
+      <div class="container">
+        <h2 class="title title--gold reveal">خدماتنا المميزة</h2>
+        <div class="grid grid--4">
+          <article class="svc reveal"><div class="svc__ic">💻</div><h3>تطوير مواقع وتطبيقات</h3><p>نقدّم حلول برمجة متقدمة نطوّر أنظمة ومواقع وتطبيقات بكود احترافي وأداء مستقر، تدعم نمو أعمالك.</p></article>
+          <article class="svc reveal"><div class="svc__ic">🎨</div><h3>تصميم واجهة مستخدم UI / UX</h3><p>واجهات أنيقة وتجارب مستخدم سلسة تعكس هوية علامتك وتعزّز تفاعل عملائك.</p></article>
+          <article class="svc reveal"><div class="svc__ic">📈</div><h3>تسويق احترافي</h3><p>استراتيجيات تسويق رقمية ذكية تعزّز حضور علامتك وتصل بك إلى جمهورك المستهدف.</p></article>
+          <article class="svc reveal"><div class="svc__ic">🤖</div><h3>حلول الذكاء الاصطناعي</h3><p>دمج البحث الذكي والمساعدات الآلية داخل منتجك لتجربة أذكى.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section journey" id="journey">
+      <div class="container">
+        <h2 class="title reveal">رحلتك <em>الرقمية</em> معنا</h2>
         <ol class="steps">
-          <li class="reveal"><b>01</b><h3>الفكرة والتحليل</h3><p>نفهم هدفك وجمهورك ونحدد المتطلبات.</p></li>
-          <li class="reveal"><b>02</b><h3>التصميم</h3><p>نصمم واجهات أنيقة وتجربة استخدام واضحة.</p></li>
-          <li class="reveal"><b>03</b><h3>التطوير</h3><p>نبرمج بأحدث التقنيات ونختبر باستمرار.</p></li>
-          <li class="reveal"><b>04</b><h3>الإطلاق والدعم</h3><p>نطلق مشروعك ونبقى معك للتطوير والصيانة.</p></li>
+          <li class="step reveal"><div class="step__ic">💡<b>01</b></div><h3>تهيئة الأفكار</h3><p>نبدأ بتحليل فكرتك وصقلها، وتحويلها إلى رؤية واضحة وخطة عمل قابلة للتنفيذ.</p></li>
+          <li class="step reveal"><div class="step__ic">🎨<b>02</b></div><h3>تصميم UI/UX</h3><p>نصمم تجربة مستخدم مدروسة وواجهات عصرية، توازن بين الجمال وسهولة الاستخدام.</p></li>
+          <li class="step reveal"><div class="step__ic">⌨️<b>03</b></div><h3>البرمجة و التطوير</h3><p>نطوّر الحل البرمجي بكود نظيف ومتقن، مع أداء عالٍ واستقرار طويل الأمد.</p></li>
+          <li class="step reveal"><div class="step__ic">🚀<b>04</b></div><h3>الإطلاق والتسويق</h3><p>نطلق المشروع باستراتيجيات تسويق رقمية ذكية، تعزّز الانتشار وتحقق النمو.</p></li>
         </ol>
       </div>
     </section>
 
-    <section class="section" id="works">
+    <section class="section works" id="works">
       <div class="container">
-        <div class="head reveal"><span class="kicker">الأعمال</span><h2>من أعمالنا</h2></div>
+        <h2 class="title reveal">أعمالنا المختارة</h2>
+        <div class="filters reveal" id="filters" role="tablist">
+          <button class="on" data-f="all">الكل</button>
+          <button data-f="app">تطبيقات جوال</button>
+          <button data-f="web">مواقع ومنصات</button>
+        </div>
         <div class="grid grid--3" id="worksGrid"></div>
       </div>
     </section>
 
-    <section class="section section--soft" id="contact">
-      <div class="container contact reveal">
-        <h2>جاهز نبدأ مشروعك؟</h2>
+    <section class="section contact" id="contact">
+      <div class="container reveal">
+        <h2 class="title">جاهز نبدأ <em>مشروعك</em>؟</h2>
         <p>تواصل معنا وسنرد عليك في أقرب وقت.</p>
-        <div class="actions actions--center">
-          <a class="btn btn--gold" href="https://wa.me/966535876078" target="_blank" rel="noopener">واتساب: 0535876078</a>
+        <div class="contact__actions">
+          <a class="btn btn--wa" href="https://wa.me/966535876078" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#wa"/></svg> واتساب</a>
           <a class="btn btn--navy" href="mailto:lhjf111@gmail.com">lhjf111@gmail.com</a>
         </div>
       </div>
@@ -119,6 +126,8 @@
       <a href="#top">للأعلى ↑</a>
     </div>
   </footer>
+
+  <a class="wa-float" href="https://wa.me/966535876078" target="_blank" rel="noopener" aria-label="تواصل عبر واتساب"><svg aria-hidden="true"><use href="#wa"/></svg></a>
 
   <script src="js/main.js"></script>
 </body>
