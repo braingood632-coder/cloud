@@ -48,15 +48,16 @@ nav.addEventListener("click", (e) => { if (e.target.tagName === "A") setMenu(fal
 // ظهور تدريجي متتابع عند التمرير
 const show = (el) => {
   el.classList.add("in");
-  el.addEventListener("transitionend", () => el.classList.add("done"), { once: true });
+  const end = (e) => { if (e.target !== el || e.propertyName !== "transform") return; el.classList.add("done"); el.removeEventListener("transitionend", end); };
+  el.addEventListener("transitionend", end);
 };
 document.querySelectorAll(".grid, .steps, .vm__item").forEach((group) => {
-  group.querySelectorAll(":scope > .reveal, :scope > * > .reveal").forEach((el, i) => el.style.setProperty("--d", `${i * 0.12}s`));
+  group.querySelectorAll(":scope > .reveal, :scope > * > .reveal").forEach((el, i) => el.style.setProperty("--d", `${i * 0.1}s`));
 });
 const io = "IntersectionObserver" in window
   ? new IntersectionObserver((entries) => entries.forEach((en) => {
       if (en.isIntersecting) { show(en.target); io.unobserve(en.target); }
-    }), { threshold: 0.15, rootMargin: "0px 0px -40px 0px" })
+    }), { threshold: 0.08, rootMargin: "0px 0px -8% 0px" })
   : null;
 document.querySelectorAll(".reveal").forEach((el) => (io ? io.observe(el) : el.classList.add("in")));
 
