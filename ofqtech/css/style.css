@@ -47,11 +47,13 @@ a { color: inherit; text-decoration: none; }
 .actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 28px; }
 .actions--center { justify-content: center; }
 .hero__visual { position: relative; height: 440px; border-radius: 28px; background: linear-gradient(160deg, #eef2fa, #f8fafd); overflow: hidden; }
-.laptop { position: absolute; width: 74%; inset-inline-end: -6%; top: 14%; border-radius: 16px; transform: rotate(6deg); box-shadow: 0 30px 60px -22px rgba(27,43,75,.45); }
+.laptop { position: absolute; width: 78%; inset-inline-end: 4%; top: 16%; z-index: 1; }
+.laptop__screen { aspect-ratio: 16 / 10; border: 10px solid #10151f; border-bottom-width: 14px; border-radius: 16px 16px 4px 4px; overflow: hidden; background: #0b1220; box-shadow: 0 30px 60px -22px rgba(27,43,75,.5); }
+.laptop__screen img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.laptop__base { height: 14px; margin-inline: -7%; border-radius: 0 0 14px 14px; background: linear-gradient(#d5dae3, #9aa3b2); box-shadow: 0 14px 24px -12px rgba(27,43,75,.5); }
 .phone { position: absolute; width: 27%; aspect-ratio: 9 / 19; border: 7px solid #10151f; border-radius: 30px; overflow: hidden; background: #10151f; box-shadow: 0 30px 60px -18px rgba(27,43,75,.55); }
 .phone img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
-.phone--c { inset-inline-start: 37%; top: 8%; z-index: 3; width: 30%; }
-.phone--l { inset-inline-start: 10%; top: 22%; z-index: 2; transform: rotate(-8deg); }
+.phone--c { inset-inline-start: 6%; top: 10%; z-index: 3; width: 28%; }
 
 .section { padding: 88px 0; }
 .section--soft { background: var(--soft); }
