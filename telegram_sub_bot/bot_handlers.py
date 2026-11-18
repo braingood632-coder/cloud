@@ -60,14 +60,14 @@ def _subscribe_url(bot_username: str, chat_id: int) -> str:
 
 def _subscribe_keyboard(bot_username: str, chat_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("📝 اشترك الآن", url=_subscribe_url(bot_username, chat_id))]]
+        [[InlineKeyboardButton("✅ اشترك ✅", url=_subscribe_url(bot_username, chat_id))]]
     )
 
 
 def _plans_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     rows = []
     for key, plan in PLANS.items():
-        label = f"{plan['name']} — {plan['price']:.0f} ريال ({plan['label']})"
+        label = f"{plan['name']} ← {plan['price']:.0f} ريال ← {plan['days']} يوماً"
         rows.append([InlineKeyboardButton(label, callback_data=f"plan|{chat_id}|{key}")])
     return InlineKeyboardMarkup(rows)
 
@@ -162,6 +162,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     message = update.effective_message
 
+    user_id = update.effective_user.id
     arg = context.args[0] if context.args else ""
     if arg.startswith("sub_"):
         try:
@@ -170,27 +171,72 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             group_id = 0
         group = await db.get_linked_group(group_id) if group_id else None
         if group is None:
-            await message.reply_text("عذراً، هذا القروب غير مفعّل حالياً على بوت Cloud.")
+            await message.reply_text("عذراً، هذه المجموعة غير مفعّلة حالياً على البوت.")
             return
+        await message.reply_text(**await _plans_message(group_id, group, user_id))
+        return
 
-        end = await db.get_active_end_date(update.effective_user.id, group_id)
-        current = f"\n✅ اشتراكك الحالي صالح حتى {_fmt_date(end)} — يمكنك التجديد مسبقاً وستُضاف المدة.\n" if end else ""
+    # /start بدون رابط: نبحث عن المجموعات المربوطة التي هو عضو فيها
+    groups = await _user_groups(context, user_id)
+    if len(groups) == 1:
+        group_id, group = groups[0]
+        await message.reply_text(**await _plans_message(group_id, group, user_id))
+        return
+    if len(groups) > 1:
+        rows = [[InlineKeyboardButton(f"👥 {g.get('title', '')}", callback_data=f"grp|{gid}")] for gid, g in groups]
         await message.reply_text(
-            f"اهلا وسهلا بك في بوت {settings.BOT_NAME} 🎉🎉\n"
-            f"القروب: {group.get('title', '')}\n{current}\n"
-            "اختر الباقة المناسبة لك من الأزرار بالأسفل للاشتراك 👇",
-            reply_markup=_plans_keyboard(group_id),
+            f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🎉\n\nاختر المجموعة التي ترغب في الاشتراك بها 👇",
+            reply_markup=InlineKeyboardMarkup(rows),
         )
         return
 
-    site = settings.PUBLIC_BASE_URL
     await message.reply_text(
-        f"اهلا وسهلا بك في بوت {settings.BOT_NAME} 🤖☁️\n\n"
-        "👤 إذا كنت عضواً: اضغط زر «اشترك الآن» الموجود داخل القروب الذي تريد الكتابة فيه.\n\n"
-        f"👑 إذا كنت صاحب قروب: سجّل مجاناً في الموقع واربط قروبك:\n{site}\n\n"
+        f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🤖☁️\n\n"
+        "👤 إن كنت عضواً: اضغط زر «اشترك» الموجود داخل المجموعة التي ترغب في النشر بها.\n\n"
+        f"👑 إن كنت صاحب مجموعة: سجّل مجاناً في الموقع واربط مجموعتك:\n{settings.PUBLIC_BASE_URL}\n\n"
         "📋 لعرض اشتراكاتك: /mysubs\n"
         f"🛟 الدعم الفني: @{settings.SUPPORT_USERNAME}"
     )
+
+
+async def _plans_message(group_id: int, group: dict, user_id: int) -> dict:
+    """رسالة عرض الباقات (نفس أسلوب: 📦 قم باختيار إحدى باقات الاشتراك التالية)."""
+    end = await db.get_active_end_date(user_id, group_id)
+    current = (
+        f"✅ اشتراكك الحالي ساري حتى {_fmt_date(end)}، ويمكنك التجديد مسبقاً وتُضاف المدة الجديدة إليه.\n\n"
+        if end else ""
+    )
+    return {
+        "text": f"👥 المجموعة: {group.get('title', '')}\n\n{current}📦 قم باختيار إحدى باقات الاشتراك التالية 📦",
+        "reply_markup": _plans_keyboard(group_id),
+    }
+
+
+async def _user_groups(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> list[tuple[int, dict]]:
+    found = []
+    for group in (await db.list_active_groups())[:50]:
+        gid = int(group["id"])
+        try:
+            member = await context.bot.get_chat_member(gid, user_id)
+        except TelegramError:
+            continue
+        if member.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.RESTRICTED, *ADMIN_STATUSES):
+            found.append((gid, group))
+    return found
+
+
+async def choose_group_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    try:
+        group_id = int(query.data.split("|", 1)[1])
+    except ValueError:
+        return
+    group = await db.get_linked_group(group_id)
+    if group is None:
+        await query.edit_message_text("عذراً، هذه المجموعة غير مفعّلة حالياً على البوت.")
+        return
+    await query.edit_message_text(**await _plans_message(group_id, group, query.from_user.id))
 
 
 async def mysubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -257,13 +303,12 @@ async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     await query.edit_message_text(
         text=(
-            f"تم إنشاء فاتورة {plan['name']} بقيمة {plan['price']:.0f} ريال ✅\n"
-            f"القروب: {group.get('title', '')}\n"
-            f"⏳ الفاتورة صالحة لمدة {INVOICE_EXPIRY_MINUTES} دقيقة فقط.\n\n"
-            "اضغط الزر بالأسفل لإتمام الدفع 👇"
+            f"📦 {plan['name']} — {plan['price']:.0f} ريال — {plan['days']} يوماً\n"
+            f"👥 المجموعة: {group.get('title', '')}\n\n"
+            f"اضغط للاشتراك. تنتهي العملية خلال {INVOICE_EXPIRY_MINUTES} دقيقة ⏳"
         ),
         reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("💳 إتمام الدفع الآن", web_app=WebAppInfo(url=hosted_url))]]
+            [[InlineKeyboardButton("✅ اشترك ✅", web_app=WebAppInfo(url=hosted_url))]]
         ),
     )
 
@@ -329,8 +374,8 @@ async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYP
     warning = await context.bot.send_message(
         chat_id=chat.id,
         text=(
-            f"⚠️ عذراً {user.mention_html()}، هذا القروب مخصص للمشتركين فقط.\n"
-            "اضغط الزر بالأسفل للاشتراك حتى تتمكن من الإرسال هنا 👇"
+            f"⚠️ عذراً {user.mention_html()}، النشر في هذه المجموعة متاحٌ للمشتركين فقط.\n"
+            "اشترك الآن لتتمكن من المشاركة فوراً 👇"
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=_subscribe_keyboard(context.bot.username, chat.id),
@@ -349,10 +394,17 @@ async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYP
 # ---------------------------------------------------------------------------
 
 def build_reminder_text(group_title: str) -> str:
-    lines = [f"📢 تذكير: قروب «{group_title}» مخصص للمشتركين فقط.", "", "الباقات المتاحة:"]
+    lines = [
+        "⚠️ تنبيه هام لأعضاء المجموعة ⚠️",
+        "",
+        f"النشر في مجموعة «{group_title}» مقتصرٌ على المشتركين فقط؛ حفاظاً على جودة المحتوى، "
+        "ومنعاً للإعلانات العشوائية والأرقام الوهمية والمحتالين.",
+        "",
+        "📦 باقات الاشتراك المتاحة:",
+    ]
     for plan in PLANS.values():
-        lines.append(f"• {plan['name']} — {plan['price']:.0f} ريال / {plan['label']}")
-    lines += ["", "اضغط الزر بالأسفل للاشتراك الآن 👇"]
+        lines.append(f"• {plan['name']} — {plan['price']:.0f} ريال لمدة {plan['days']} يوماً")
+    lines += ["", "للاشتراك وتفعيل صلاحية النشر فوراً، اضغط على الزر أدناه 👇"]
     return "\n".join(lines)
 
 
@@ -447,6 +499,7 @@ def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("mysubs", mysubs_command))
     application.add_handler(CommandHandler("link", link_command))
     application.add_handler(CallbackQueryHandler(choose_plan_callback, pattern=r"^plan\|"))
+    application.add_handler(CallbackQueryHandler(choose_group_callback, pattern=r"^grp\|"))
     application.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, migrate_handler))
     application.add_handler(

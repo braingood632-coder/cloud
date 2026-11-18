@@ -183,6 +183,16 @@ async def test_full_flow(monkeypatch):
     await bot_handlers.start_command(upd, make_ctx([f"sub_{GROUP_ID}"]))
     kb = upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict()
     assert f"plan|{GROUP_ID}|plan_3m" in str(kb)
+    assert "قم باختيار إحدى باقات الاشتراك" in upd.effective_message.reply_text.call_args.kwargs["text"]
+
+    # --- /start بدون رابط: يكتشف مجموعة العضو ويعرض الباقات مباشرة ---
+    upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
+    await bot_handlers.start_command(upd, make_ctx([], admins))
+    assert f"plan|{GROUP_ID}|plan_6m" in str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
+
+    # --- رسالة التذكير ---
+    text = bot_handlers.build_reminder_text("قروب عقارات")
+    assert "مقتصرٌ على المشتركين" in text and "50 ريال" in text
 
     # --- اختيار الباقة ينشئ فاتورة واشتراك pending ---
     invoices = {}
@@ -210,7 +220,7 @@ async def test_full_flow(monkeypatch):
         return query
 
     q = await choose("plan_3m")
-    assert "إتمام الدفع" in str(q.edit_message_text.call_args.kwargs["reply_markup"].to_dict())
+    assert "checkout.moyasar.com" in str(q.edit_message_text.call_args.kwargs["reply_markup"].to_dict())
     sub = db.db().collection("subscriptions").document("inv_1").get().to_dict()
     assert sub["status"] == "pending" and sub["ownerUid"] == owner_uid
     assert sub["amount"] == 50.0 and sub["ownerShare"] == 45.0 and sub["commission"] == 5.0
