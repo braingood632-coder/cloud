@@ -5,7 +5,7 @@ import {
 } from "/assets/common.js";
 import {
   CFG, auth, db, configured, onAuthStateChanged, signOut, doc, getDoc, addDoc, deleteDoc,
-  collection, onSnapshot, serverTimestamp,
+  collection, onSnapshot, serverTimestamp, reload, sendEmailVerification,
 } from "/assets/firebase.js";
 
 const PAGES = [
@@ -36,11 +36,29 @@ if (configured) {
     if (!user) return location.replace("/auth.html#login");
     state.user = user;
     $("#meEmail").textContent = user.email;
-    const me = await getDoc(doc(db, "owners", user.uid));
+    let me = await getDoc(doc(db, "owners", user.uid));
     if (me.data()?.role !== "admin") {
-      $("#main").innerHTML = `<div class="alert alert-error">هذه الصفحة لأدمن المنصة فقط. أضف بريدك إلى ADMIN_EMAILS في إعدادات السيرفر ثم أعد تشغيله.</div>
-        <a class="btn btn-outline" href="/dashboard.html">العودة للوحة التحكم</a>`;
-      return;
+      // محاولة تفعيل الأدمن فوراً (للإيميلات الموجودة في ADMIN_EMAILS بعد تأكيدها)
+      await reload(user).catch(() => {});
+      let claim = {};
+      try {
+        const res = await fetch("/api/claim-admin", {
+          method: "POST", headers: { Authorization: "Bearer " + (await user.getIdToken(true)) },
+        });
+        claim = await res.json().catch(() => ({}));
+        if (res.ok) me = await getDoc(doc(db, "owners", user.uid));
+      } catch (e) { /* يعرض الرسالة بالأسفل */ }
+      if (me.data()?.role !== "admin") {
+        const notVerified = claim.error === "email_not_verified";
+        $("#main").innerHTML = notVerified
+          ? `<div class="alert alert-warn">لتفعيل لوحة الأدمن أكّد بريدك الإلكتروني أولاً: افتح الرسالة التي وصلتك واضغط رابط التأكيد، ثم حدّث هذه الصفحة.</div>
+             <button class="btn btn-primary" id="resend">إعادة إرسال رسالة التأكيد</button> <a class="btn btn-outline" href="/dashboard.html">العودة للوحة التحكم</a>`
+          : `<div class="alert alert-error">هذه الصفحة لأدمن المنصة فقط.</div>
+             <a class="btn btn-outline" href="/dashboard.html">العودة للوحة التحكم</a>`;
+        $("#resend")?.addEventListener("click", () =>
+          sendEmailVerification(user).then(() => toast("تم إرسال رسالة التأكيد ✅")).catch(onErr));
+        return;
+      }
     }
     renderNav();
     const listen = (col, key) => onSnapshot(collection(db, col), (s) => {

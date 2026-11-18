@@ -16,7 +16,7 @@ import httpx
 
 from config import INVOICE_EXPIRY_MINUTES, settings
 
-MOYASAR_BASE_URL = "https://api.moyasar.com/v1"
+
 
 
 class MoyasarError(Exception):
@@ -52,7 +52,7 @@ async def create_invoice(
     }
 
     async with _client() as client:
-        response = await client.post(f"{MOYASAR_BASE_URL}/invoices", json=payload)
+        response = await client.post(f"{settings.MOYASAR_BASE_URL}/invoices", json=payload)
 
     if response.status_code not in (200, 201):
         raise MoyasarError(f"فشل إنشاء الفاتورة: {response.status_code} - {response.text}")
@@ -61,7 +61,7 @@ async def create_invoice(
 
 async def fetch_invoice(invoice_id: str) -> dict:
     async with _client() as client:
-        response = await client.get(f"{MOYASAR_BASE_URL}/invoices/{invoice_id}")
+        response = await client.get(f"{settings.MOYASAR_BASE_URL}/invoices/{invoice_id}")
     if response.status_code != 200:
         raise MoyasarError(f"فشل جلب الفاتورة: {response.status_code} - {response.text}")
     return response.json()
@@ -69,7 +69,7 @@ async def fetch_invoice(invoice_id: str) -> dict:
 
 async def fetch_payment(payment_id: str) -> dict:
     async with _client() as client:
-        response = await client.get(f"{MOYASAR_BASE_URL}/payments/{payment_id}")
+        response = await client.get(f"{settings.MOYASAR_BASE_URL}/payments/{payment_id}")
     if response.status_code != 200:
         raise MoyasarError(f"فشل جلب عملية الدفع: {response.status_code} - {response.text}")
     return response.json()

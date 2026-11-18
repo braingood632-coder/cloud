@@ -219,3 +219,9 @@ __marimo__/
 
 # Firebase emulator logs
 *-debug.log
+
+# Firebase
+.secret.local
+.env.local
+.firebase/
+functions/venv/

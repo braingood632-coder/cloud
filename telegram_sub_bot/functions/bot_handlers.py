@@ -14,10 +14,14 @@ bot_handlers.py
 
 from __future__ import annotations
 
+import asyncio
+import datetime as dt
 import html
 import logging
+from typing import Callable, Optional
 
 from telegram import (
+    Bot,
     ChatMemberAdministrator,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -39,9 +43,6 @@ from telegram.ext import (
 import firebase_db as db
 import moyasar_client
 from config import (
-    EXPIRY_CHECK_INTERVAL_SECONDS,
-    GROUP_REMINDER_INTERVAL_SECONDS,
-    GROUP_STATS_INTERVAL_SECONDS,
     INVOICE_EXPIRY_MINUTES,
     LINK_CODE_TTL_MINUTES,
     PLANS,
@@ -129,7 +130,7 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         except TelegramError:
             pass
         await db.update_group(chat.id, botIsAdmin=True, canDelete=True)
-        await _refresh_group_stats(context, chat.id)
+        await refresh_group_stats(context.bot, chat.id)
         await context.bot.send_message(
             chat.id,
             "✅ تم ربط القروب بنجاح بحساب «" + html.escape(group.get("ownerName") or "صاحب القروب") + "».\n\n"
@@ -338,12 +339,29 @@ async def _is_exempt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool
         return False
 
 
-async def _delete_later(context: ContextTypes.DEFAULT_TYPE) -> None:
-    data = context.job.data
-    try:
-        await context.bot.delete_message(chat_id=data["chat_id"], message_id=data["message_id"])
-    except TelegramError:
-        pass
+# يضبطها main.py لإرسال مهمة Cloud Tasks تحذف التنبيه بعد 20 ثانية.
+# إن لم تتوفر (أو فشلت) نسجّل التنبيه في Firestore ويُحذف في أقرب فرصة.
+enqueue_delete_task: Optional[Callable[[int, int, int], None]] = None
+
+
+async def schedule_warning_delete(chat_id: int, message_id: int) -> None:
+    if enqueue_delete_task is not None:
+        try:
+            await asyncio.to_thread(enqueue_delete_task, chat_id, message_id, WARNING_MESSAGE_AUTO_DELETE_SECONDS)
+            return
+        except Exception as exc:  # صلاحيات Cloud Tasks غير مضبوطة مثلاً
+            logger.warning("تعذر جدولة حذف التنبيه عبر Cloud Tasks (%s)، سيتم الحذف الاحتياطي", exc)
+    await db.add_pending_delete(
+        chat_id, message_id, db.utcnow() + dt.timedelta(seconds=WARNING_MESSAGE_AUTO_DELETE_SECONDS)
+    )
+
+
+async def delete_due_warnings(bot: Bot, chat_id: Optional[int] = None) -> None:
+    for item in await db.pop_due_deletes(chat_id):
+        try:
+            await bot.delete_message(chat_id=item["chatId"], message_id=item["messageId"])
+        except TelegramError:
+            pass
 
 
 async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -381,12 +399,8 @@ async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=_subscribe_keyboard(context.bot.username, chat.id),
     )
 
-    if context.job_queue is not None:
-        context.job_queue.run_once(
-            _delete_later,
-            when=WARNING_MESSAGE_AUTO_DELETE_SECONDS,
-            data={"chat_id": warning.chat_id, "message_id": warning.message_id},
-        )
+    await schedule_warning_delete(warning.chat_id, warning.message_id)
+    await delete_due_warnings(context.bot, chat.id)  # تنظيف أي تنبيهات قديمة متأخرة
 
 
 # ---------------------------------------------------------------------------
@@ -408,53 +422,56 @@ def build_reminder_text(group_title: str) -> str:
     return "\n".join(lines)
 
 
-async def group_reminder_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def run_reminders(bot: Bot) -> int:
+    """تُستدعى من الدالة المجدولة كل 30 دقيقة. ترجع عدد القروبات التي وصلها التذكير."""
+    sent = 0
     for group in await db.list_active_groups():
         if not group.get("remindersEnabled", True):
             continue
         chat_id = int(group["id"])
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=chat_id,
                 text=build_reminder_text(group.get("title", "")),
-                reply_markup=_subscribe_keyboard(context.bot.username, chat_id),
+                reply_markup=_subscribe_keyboard(bot.username, chat_id),
             )
+            sent += 1
         except TelegramError as exc:
             logger.warning("تعذر إرسال التذكير في القروب %s: %s", chat_id, exc)
+    await delete_due_warnings(bot)
+    return sent
 
 
 # ---------------------------------------------------------------------------
 # 6) مهام دورية
 # ---------------------------------------------------------------------------
 
-async def check_expired_subscriptions_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    for sub in await db.expire_outdated_subscriptions():
+async def run_expiry(bot: Bot) -> int:
+    expired = await db.expire_outdated_subscriptions()
+    for sub in expired:
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=sub["telegramUserId"],
-                text=f"⚠️ انتهى اشتراكك في «{sub.get('groupTitle', '')}». جدّد اشتراكك من الزر بالأسفل 👇",
-                reply_markup=_subscribe_keyboard(context.bot.username, sub["groupId"]),
+                text=f"⚠️ انتهى اشتراكك في «{sub.get('groupTitle', '')}». يمكنك التجديد بالضغط على الزر أدناه 👇",
+                reply_markup=_subscribe_keyboard(bot.username, sub["groupId"]),
             )
         except TelegramError:
             logger.info("تعذر إبلاغ المستخدم %s بانتهاء الاشتراك", sub["telegramUserId"])
+    return len(expired)
 
 
-async def _refresh_group_stats(context: ContextTypes.DEFAULT_TYPE, chat_id: int) -> None:
+async def refresh_group_stats(bot: Bot, chat_id: int) -> None:
     try:
-        chat = await context.bot.get_chat(chat_id)
-        count = await context.bot.get_chat_member_count(chat_id)
+        chat = await bot.get_chat(chat_id)
+        count = await bot.get_chat_member_count(chat_id)
         await db.update_group(chat_id, title=chat.title or "", memberCount=count)
-    except TelegramError as exc:
+    except Exception as exc:  # الإحصائيات ثانوية: لا توقف الربط أو الصيانة
         logger.info("تعذر تحديث إحصائيات القروب %s: %s", chat_id, exc)
 
 
-async def group_stats_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def run_group_stats(bot: Bot) -> None:
     for group in await db.list_active_groups():
-        await _refresh_group_stats(context, int(group["id"]))
-
-
-async def admin_sync_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    await db.sync_admin_roles()
+        await refresh_group_stats(bot, int(group["id"]))
 
 
 # ---------------------------------------------------------------------------
@@ -505,10 +522,3 @@ def register_handlers(application: Application) -> None:
     application.add_handler(
         MessageHandler(filters.ChatType.GROUPS & ~filters.StatusUpdate.ALL, guard_group_messages)
     )
-
-    jq = application.job_queue
-    if jq is not None:
-        jq.run_repeating(check_expired_subscriptions_job, interval=EXPIRY_CHECK_INTERVAL_SECONDS, first=60)
-        jq.run_repeating(group_reminder_job, interval=GROUP_REMINDER_INTERVAL_SECONDS, first=GROUP_REMINDER_INTERVAL_SECONDS)
-        jq.run_repeating(group_stats_job, interval=GROUP_STATS_INTERVAL_SECONDS, first=120)
-        jq.run_repeating(admin_sync_job, interval=600, first=5)

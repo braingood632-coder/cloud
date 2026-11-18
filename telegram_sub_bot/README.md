@@ -1,4 +1,4 @@
-# منصة Cloud — موقع + بوت تليجرام + Firebase
+# منصة Cloud — موقع + بوت تليجرام على Firebase
 
 نظام كامل من جزأين يعملان معاً في سيرفر واحد:
 
@@ -29,87 +29,50 @@
 ### الحماية
 - قواعد `firestore.rules` تمنع أي صاحب قروب من رؤية بيانات غيره، أو تزوير
   اشتراك، أو منح نفسه صلاحية أدمن، أو تسجيل تحويل لنفسه، أو سرقة قروب غيره.
+- لوحة الأدمن لا تُمنح إلا لإيميل موجود في `ADMIN_EMAILS` **وبعد تأكيده**.
 - الدفع لا يُفعَّل بمجرد وصول إشعار: السيرفر يجلب الفاتورة من ميسر مباشرة
   ويتأكد أنها مدفوعة وأن المبلغ مطابق.
 - ربط القروب متاح لمشرفي القروب فقط، والكود لمرة واحدة.
 
 ---
 
-## خطوات التشغيل
+## التشغيل والرفع
+كل المنصة تعمل على **Firebase** (خطة Blaze): Hosting للموقع، Cloud Functions للبوت والدفع،
+Firestore لقاعدة البيانات. الخطوات الكاملة في **[DEPLOY.md](DEPLOY.md)**.
 
-### 1) إنشاء مشروع Firebase
-1. ادخل [console.firebase.google.com](https://console.firebase.google.com) → **Add project**.
-2. **Build → Authentication → Get started → Email/Password → Enable**.
-3. **Build → Firestore Database → Create database** (اختر Production mode وموقع `eur3` أو الأقرب لك).
-4. **Firestore → Rules:** انسخ محتوى ملف `firestore.rules` كاملاً والصقه ثم **Publish**.
-   (أو عبر الطرفية: `npx firebase-tools deploy --only firestore:rules --project <PROJECT_ID>`)
-5. **Project settings (⚙️) → General → Your apps → أيقونة الويب `</>`**: سجّل تطبيق ويب،
-   وانسخ القيم من `firebaseConfig` إلى متغيرات البيئة:
-   `apiKey → FIREBASE_API_KEY`، `authDomain → FIREBASE_AUTH_DOMAIN`، `projectId → FIREBASE_PROJECT_ID`،
-   `appId → FIREBASE_APP_ID`، `storageBucket`، `messagingSenderId`. هذه القيم **ليست سرية**.
-6. **Project settings → Service accounts → Generate new private key**: ينزل ملف JSON.
-   هذا الملف **سري جداً**: لا ترفعه على GitHub ولا ترسله لأحد. ضع محتواه كاملاً
-   في متغير `FIREBASE_SERVICE_ACCOUNT` في Render.
-7. **Authentication → Settings → Authorized domains:** أضف نطاق موقعك (مثل `cloud-bot.onrender.com`).
-
-### 2) البوت وميسر
-- `BOT_TOKEN` من [@BotFather](https://t.me/BotFather). ومن BotFather أيضاً:
-  `/setjoingroups` → Enable، و `/setprivacy` → يمكن تركه Enabled أو Disabled (يُفضّل **Disable** حتى يرى البوت كل رسائل القروب).
-- `MOYASAR_SECRET_KEY` من لوحة ميسر → API Keys.
-- في ميسر → **Developers → Webhooks → Add**:
-  - URL: `PUBLIC_BASE_URL/moyasar/webhook`
-  - Secret Token: نفس `MOYASAR_WEBHOOK_SECRET`
-  - Events: `payment_paid` (و `invoice_paid` إن ظهر)
-
-### 3) النشر على Render
-1. **New → Web Service** واختر هذا المستودع، **Root Directory:** `telegram_sub_bot`
-2. **Build:** `pip install -r requirements.txt` — **Start:** `python main.py`
-3. في **Environment** أضف كل المتغيرات الموجودة في `.env.example`.
-   `ADMIN_EMAILS` = الإيميل الذي ستسجل به في الموقع (يصبح أدمن تلقائياً خلال دقائق).
-4. بعد أول نشر انسخ رابط Render إلى `PUBLIC_BASE_URL` وأعد النشر.
-5. ⚠️ على خطة Render المجانية ينام السيرفر بعد 15 دقيقة بدون زيارات فيتوقف البوت.
-   استخدم خطة مدفوعة (Starter) حتى يعمل البوت 24 ساعة.
-
-> لم يعد هناك قاعدة بيانات SQLite: كل البيانات في Firestore، فلا تضيع عند إعادة النشر.
-
-### 4) التجربة
-1. افتح موقعك → **سجّل مجاناً** بإيميل `ADMIN_EMAILS`.
-2. من **القروبات** اضغط «ربط قروب جديد» ثم «أضف البوت إلى قروبك» واختر قروباً تجريبياً.
-3. اكتب في القروب من حساب آخر → تُحذف الرسالة ويظهر زر الاشتراك.
-4. اشترك بمفاتيح ميسر التجريبية (Test) → يظهر الاشتراك فوراً في لوحة التحكم.
+باختصار من اللابتوب:
+```bash
+cd telegram_sub_bot
+firebase use --add
+firebase functions:secrets:set BOT_TOKEN          # و MOYASAR_SECRET_KEY و MOYASAR_WEBHOOK_SECRET
+firebase deploy
+# ثم افتح: https://<PROJECT_ID>.web.app/api/setup-webhook
+```
 
 ## تعديل الأسعار والعمولة
-- الباقات في `config.py → PLANS` (تظهر تلقائياً في الموقع والبوت).
-- العمولة: متغير `PLATFORM_COMMISSION_PERCENT`.
+- الباقات في `functions/config.py → PLANS` (تظهر تلقائياً في الموقع والبوت).
+- العمولة: `PLATFORM_COMMISSION_PERCENT` في `functions/.env`.
 
 ## أوامر البوت
 | الأمر | أين | الوظيفة |
 |---|---|---|
 | `/link CODE` | القروب | ربط القروب بحساب صاحبه (للمشرفين فقط) |
-| `/start` | الخاص | ترحيب وشرح |
+| `/start` | الخاص | يعرض باقات القروب الذي أنت عضو فيه |
 | `/mysubs` | الخاص | اشتراكات العضو النشطة |
 
 ## هيكل المشروع
 ```
 telegram_sub_bot/
-├── config.py           الإعدادات والباقات
-├── firebase_db.py      قاعدة البيانات (Firestore)
-├── moyasar_client.py   ميسر
-├── bot_handlers.py     منطق البوت
-├── webhook_server.py   السيرفر: الموقع + Webhook + تشغيل البوت
-├── main.py             python main.py
-├── firestore.rules     قواعد حماية قاعدة البيانات
-├── web/                الموقع (index, auth, dashboard, admin)
-└── tests/              اختبارات على Firebase Emulator
-```
-
-## تشغيل الاختبارات محلياً
-```bash
-npx firebase-tools emulators:start --only auth,firestore --project demo-cloud
-python -m pytest tests -q
-```
-وللموقع محلياً بدون بوت:
-```bash
-FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
-FIREBASE_PROJECT_ID=demo-cloud RUN_BOT=false python main.py
+├── firebase.json          إعدادات Firebase + توجيه الروابط للدوال
+├── firestore.rules        قواعد حماية قاعدة البيانات
+├── public/                الموقع (index, auth, dashboard, admin)
+├── functions/             Cloud Functions (Python 3.12)
+│   ├── main.py            تعريف الدوال
+│   ├── app_logic.py       منطق الـ Webhooks والمهام المجدولة
+│   ├── bot_handlers.py    منطق البوت
+│   ├── firebase_db.py     قاعدة البيانات
+│   ├── moyasar_client.py  ميسر
+│   └── config.py          الإعدادات والباقات
+├── tests/                 اختبارات على Firebase Emulator
+└── DEPLOY.md              خطوات الرفع
 ```

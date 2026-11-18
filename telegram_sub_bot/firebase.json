@@ -3,9 +3,35 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "runtime": "python312",
+      "ignore": ["venv", ".git", "__pycache__", "*.log", ".env.example", ".secret.local"]
+    }
+  ],
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*"],
+    "cleanUrls": false,
+    "rewrites": [
+      { "source": "/config.js", "function": { "functionId": "webconfig", "region": "europe-west1" } },
+      { "source": "/telegram/webhook", "function": { "functionId": "telegramwebhook", "region": "europe-west1" } },
+      { "source": "/moyasar/webhook", "function": { "functionId": "moyasarwebhook", "region": "europe-west1" } },
+      { "source": "/payment/callback", "function": { "functionId": "paymentcallback", "region": "europe-west1" } },
+      { "source": "/api/claim-admin", "function": { "functionId": "claimadmin", "region": "europe-west1" } },
+      { "source": "/api/setup-webhook", "function": { "functionId": "setupwebhook", "region": "europe-west1" } }
+    ],
+    "headers": [
+      { "source": "/assets/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=300" }] }
+    ]
+  },
   "emulators": {
     "auth": { "port": 9099 },
     "firestore": { "port": 8080 },
+    "functions": { "port": 5001 },
+    "hosting": { "port": 5000 },
     "ui": { "enabled": false },
     "singleProjectMode": true
   }

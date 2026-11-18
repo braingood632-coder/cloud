@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import json
 import logging
 import os
 import time
@@ -26,7 +25,7 @@ from typing import Any, Optional
 
 import firebase_admin
 from firebase_admin import auth as fb_auth
-from firebase_admin import credentials, firestore
+from firebase_admin import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from config import CACHE_TTL_SECONDS, LINK_CODE_TTL_MINUTES, PLANS, settings
@@ -41,32 +40,22 @@ def utcnow() -> dt.datetime:
 
 
 def init_firebase() -> None:
-    """تهيئة Firebase Admin مرة واحدة عند تشغيل السيرفر."""
+    """تهيئة Firebase Admin مرة واحدة لكل نسخة من الدالة (بدون مفاتيح: Cloud Functions توفرها تلقائياً)."""
     global _db
     if _db is not None:
         return
 
-    options = {"projectId": settings.FIREBASE_PROJECT_ID}
-    raw = settings.FIREBASE_SERVICE_ACCOUNT.strip()
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app(options={"projectId": settings.FIREBASE_PROJECT_ID} if settings.FIREBASE_PROJECT_ID else None)
 
-    if raw:
-        if raw.startswith("{"):
-            cred = credentials.Certificate(json.loads(raw))
-        else:
-            cred = credentials.Certificate(raw)
-        firebase_admin.initialize_app(cred, options)
-        _db = firestore.client()
-    elif os.getenv("FIRESTORE_EMULATOR_HOST"):
-        # وضع التجربة المحلية على Firebase Emulator: لا يحتاج مفاتيح
+    if os.getenv("FIRESTORE_EMULATOR_HOST"):
+        # التجربة المحلية على Firebase Emulator
         from google.auth.credentials import AnonymousCredentials
         from google.cloud import firestore as gc_firestore
 
-        firebase_admin.initialize_app(options=options)
         _db = gc_firestore.Client(project=settings.FIREBASE_PROJECT_ID, credentials=AnonymousCredentials())
     else:
-        raise RuntimeError("FIREBASE_SERVICE_ACCOUNT غير مضبوط. راجع README لطريقة الحصول عليه.")
-
-    logger.info("تم الاتصال بـ Firebase (المشروع: %s) ✅", settings.FIREBASE_PROJECT_ID)
+        _db = firestore.client()
 
 
 def db() -> firestore.firestore.Client:
@@ -291,8 +280,10 @@ async def is_user_active(telegram_user_id: int, group_id: int) -> bool:
         return cached
     end = await get_active_end_date(telegram_user_id, group_id)
     active = end is not None
-    # غير المشترك نخزّنه لفترة أقصر حتى يُفتح له القروب بسرعة بعد الدفع
-    _active_cache.set(key, active, ttl=CACHE_TTL_SECONDS if active else 10)
+    # نخزّن "مشترك" فقط. "غير مشترك" لا يُخزَّن أبداً: التفعيل يحدث في دالة أخرى
+    # (Webhook ميسر) فلا يمكنها مسح كاش هذه النسخة، والعضو يجب أن يُفتح له القروب فور الدفع.
+    if active:
+        _active_cache.set(key, True)
     return active
 
 
@@ -440,6 +431,8 @@ async def sync_admin_roles() -> None:
             except Exception:
                 logger.exception("تعذر جلب حساب الأدمن %s", email)
                 continue
+            if not user.email_verified:
+                continue  # حتى لا يسجّل أحد بإيميلك قبلك ويأخذ صلاحية الأدمن
             ref = db().collection("owners").document(user.uid)
             snap = ref.get()
             if snap.exists and snap.to_dict().get("role") != "admin":
@@ -447,3 +440,35 @@ async def sync_admin_roles() -> None:
                 logger.info("تم منح صلاحية الأدمن للحساب %s", email)
 
     await _run(_sync)
+
+
+# ---------------------------------------------------------------------------
+# حذف تنبيهات "يجب الاشتراك" لاحقاً (احتياط إذا تعذر استخدام Cloud Tasks)
+# ---------------------------------------------------------------------------
+
+async def add_pending_delete(chat_id: int, message_id: int, delete_at: dt.datetime) -> None:
+    def _sync():
+        db().collection("pendingDeletes").document(f"{chat_id}_{message_id}").set(
+            {"chatId": chat_id, "messageId": message_id, "deleteAt": delete_at}
+        )
+
+    await _run(_sync)
+
+
+async def pop_due_deletes(chat_id: Optional[int] = None) -> list[dict]:
+    """يرجع التنبيهات التي حان وقت حذفها ويزيلها من السجل."""
+
+    def _sync():
+        now = utcnow()
+        q = db().collection("pendingDeletes")
+        if chat_id is not None:
+            q = q.where(filter=FieldFilter("chatId", "==", chat_id))
+        due = []
+        for d in q.stream():
+            data = d.to_dict()
+            if data.get("deleteAt") and data["deleteAt"] <= now:
+                due.append(data)
+                d.reference.delete()
+        return due
+
+    return await _run(_sync)

@@ -1,10 +1,9 @@
 """
-اختبار شامل للبوت + قاعدة البيانات على Firebase Emulator (بدون تليجرام أو ميسر حقيقي).
+اختبار منطق البوت + قاعدة البيانات على Firebase Emulator (بدون تليجرام أو ميسر حقيقي).
 
-التشغيل:
+التشغيل (من مجلد telegram_sub_bot):
   firebase emulators:start --only auth,firestore --project demo-cloud
-  FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
-    python -m pytest tests -q
+  functions/venv/bin/python -m pytest tests/test_flow.py -q
 """
 
 from __future__ import annotations
@@ -22,23 +21,24 @@ os.environ.setdefault("FIRESTORE_EMULATOR_HOST", "127.0.0.1:8080")
 os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", "127.0.0.1:9099")
 os.environ.update(
     FIREBASE_PROJECT_ID="demo-cloud",
-    RUN_BOT="false",
     MOYASAR_WEBHOOK_SECRET="test-secret",
     MOYASAR_SECRET_KEY="sk_test",
     PLATFORM_COMMISSION_PERCENT="10",
     ADMIN_EMAILS="boss@example.com",
+    BOT_USERNAME="CloudTestBot",
 )
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "functions"))
 
 import httpx  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
 from telegram import ChatMemberAdministrator, ChatMemberMember, User  # noqa: E402
 from telegram.constants import ChatType  # noqa: E402
 
+import app_logic  # noqa: E402
 import bot_handlers  # noqa: E402
 import firebase_db as db  # noqa: E402
 import moyasar_client  # noqa: E402
-import webhook_server  # noqa: E402
+
+pytestmark = pytest.mark.asyncio
 
 GROUP_ID = -1001234567890
 ADMIN_TG = 111
@@ -82,12 +82,13 @@ def make_ctx(args=None, members=None):
 
     bot.get_chat_member = AsyncMock(side_effect=get_chat_member)
     bot.send_message = AsyncMock(return_value=SimpleNamespace(chat_id=GROUP_ID, message_id=5))
+    bot.delete_message = AsyncMock()
     bot.get_chat = AsyncMock(return_value=SimpleNamespace(title="قروب عقارات"))
     bot.get_chat_member_count = AsyncMock(return_value=350)
     return SimpleNamespace(bot=bot, args=args or [], job_queue=None)
 
 
-def make_update(user_id, chat_type=ChatType.SUPERGROUP, chat_id=GROUP_ID, text="hi"):
+def make_update(user_id, chat_type=ChatType.SUPERGROUP, chat_id=GROUP_ID):
     message = MagicMock()
     message.reply_text = AsyncMock()
     message.delete = AsyncMock()
@@ -99,10 +100,10 @@ def make_update(user_id, chat_type=ChatType.SUPERGROUP, chat_id=GROUP_ID, text="
     return SimpleNamespace(effective_message=message, effective_user=user, effective_chat=chat, callback_query=None)
 
 
-def create_owner(email="owner@example.com", name="صاحب القروب"):
+def create_owner(email="owner@example.com", name="صاحب القروب", verified=False):
     from firebase_admin import auth
 
-    user = auth.create_user(email=email, password="secret123")
+    user = auth.create_user(email=email, password="secret123", email_verified=verified)
     db.db().collection("owners").document(user.uid).set(
         {"name": name, "email": email, "role": "owner", "createdAt": db.utcnow()}
     )
@@ -121,6 +122,8 @@ async def test_full_flow(monkeypatch):
     owner_uid = create_owner()
     other_uid = create_owner("other@example.com", "منافس")
     admins = {ADMIN_TG: admin_member(), 999: admin_member()}
+    notify_ctx = make_ctx()
+    monkeypatch.setattr(app_logic, "get_application", AsyncMock(return_value=SimpleNamespace(bot=notify_ctx.bot)))
 
     # --- عضو عادي لا يستطيع الربط ---
     create_code("AAAA2222", owner_uid)
@@ -141,7 +144,7 @@ async def test_full_flow(monkeypatch):
 
     # --- الربط الناجح عبر /start CODE (زر أضف البوت) ---
     upd = make_update(ADMIN_TG)
-    ctx = make_ctx(["aaaa2222"], admins)  # حروف صغيرة تُقبل
+    ctx = make_ctx(["aaaa2222"], admins)
     await bot_handlers.start_command(upd, ctx)
     group = db.db().collection("groups").document(str(GROUP_ID)).get().to_dict()
     assert group["ownerUid"] == owner_uid and group["active"] is True
@@ -149,52 +152,53 @@ async def test_full_flow(monkeypatch):
     assert not db.db().collection("linkCodes").document("AAAA2222").get().exists
     assert "تم ربط القروب بنجاح" in ctx.bot.send_message.call_args.args[1]
 
-    # --- الكود لا يُستخدم مرتين ---
+    # --- الكود لا يُستخدم مرتين / لا أحد يسرق القروب ---
     upd = make_update(ADMIN_TG)
     await bot_handlers.link_command(upd, make_ctx(["AAAA2222"], admins))
     assert "غير صحيح" in upd.effective_message.reply_text.call_args.args[0]
-
-    # --- حساب آخر لا يستطيع سرقة القروب ---
     create_code("BBBB3333", other_uid)
     upd = make_update(ADMIN_TG)
     await bot_handlers.link_command(upd, make_ctx(["BBBB3333"], admins))
     assert "مربوط مسبقاً" in upd.effective_message.reply_text.call_args.args[0]
 
-    # --- غير المشترك تُحذف رسالته ---
+    # --- غير المشترك تُحذف رسالته + يُجدول حذف التنبيه ---
     upd = make_update(MEMBER_TG)
     ctx = make_ctx(members=admins)
     await bot_handlers.guard_group_messages(upd, ctx)
     upd.effective_message.delete.assert_awaited_once()
     assert f"start=sub_{GROUP_ID}" in str(ctx.bot.send_message.call_args.kwargs["reply_markup"].to_dict())
     assert db.db().collection("groups").document(str(GROUP_ID)).get().to_dict()["blockedMessages"] == 1
+    pending = db.db().collection("pendingDeletes").document(f"{GROUP_ID}_5").get().to_dict()
+    assert pending and (pending["deleteAt"] - db.utcnow()).total_seconds() > 10
+    # بعد مرور الوقت يُحذف التنبيه
+    db.db().collection("pendingDeletes").document(f"{GROUP_ID}_5").update({"deleteAt": db.utcnow()})
+    await bot_handlers.delete_due_warnings(ctx.bot)
+    ctx.bot.delete_message.assert_awaited_once_with(chat_id=GROUP_ID, message_id=5)
 
-    # --- المشرف لا تُحذف رسالته ---
+    # --- مع Cloud Tasks: تُرسل مهمة بدل التسجيل الاحتياطي ---
+    tasks = []
+    monkeypatch.setattr(bot_handlers, "enqueue_delete_task", lambda c, m, d: tasks.append((c, m, d)))
+    await bot_handlers.guard_group_messages(make_update(MEMBER_TG), make_ctx(members=admins))
+    assert tasks == [(GROUP_ID, 5, 20)]
+    monkeypatch.setattr(bot_handlers, "enqueue_delete_task", None)
+
+    # --- المشرف لا تُحذف رسالته، والقروب غير المربوط لا يُلمس ---
     upd = make_update(ADMIN_TG)
     await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
     upd.effective_message.delete.assert_not_awaited()
-
-    # --- قروب غير مربوط: البوت لا يتدخل ---
     upd = make_update(MEMBER_TG, chat_id=-100555)
     await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
     upd.effective_message.delete.assert_not_awaited()
 
-    # --- /start sub_<group> في الخاص يعرض الباقات ---
+    # --- /start sub_<group> و /start بدون رابط ---
     upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
     await bot_handlers.start_command(upd, make_ctx([f"sub_{GROUP_ID}"]))
-    kb = upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict()
-    assert f"plan|{GROUP_ID}|plan_3m" in str(kb)
     assert "قم باختيار إحدى باقات الاشتراك" in upd.effective_message.reply_text.call_args.kwargs["text"]
-
-    # --- /start بدون رابط: يكتشف مجموعة العضو ويعرض الباقات مباشرة ---
     upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
     await bot_handlers.start_command(upd, make_ctx([], admins))
     assert f"plan|{GROUP_ID}|plan_6m" in str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
 
-    # --- رسالة التذكير ---
-    text = bot_handlers.build_reminder_text("قروب عقارات")
-    assert "مقتصرٌ على المشتركين" in text and "50 ريال" in text
-
-    # --- اختيار الباقة ينشئ فاتورة واشتراك pending ---
+    # --- اختيار الباقة -> فاتورة ---
     invoices = {}
 
     async def fake_create_invoice(amount_sar, description, telegram_user_id, group_id, plan_key):
@@ -215,8 +219,7 @@ async def test_full_flow(monkeypatch):
         query.edit_message_text = AsyncMock()
         query.data = f"plan|{GROUP_ID}|{plan_key}"
         query.from_user = MagicMock(id=MEMBER_TG, full_name="عضو تجريبي", username="member1")
-        upd = SimpleNamespace(callback_query=query)
-        await bot_handlers.choose_plan_callback(upd, make_ctx())
+        await bot_handlers.choose_plan_callback(SimpleNamespace(callback_query=query), make_ctx())
         return query
 
     q = await choose("plan_3m")
@@ -225,60 +228,54 @@ async def test_full_flow(monkeypatch):
     assert sub["status"] == "pending" and sub["ownerUid"] == owner_uid
     assert sub["amount"] == 50.0 and sub["ownerShare"] == 45.0 and sub["commission"] == 5.0
 
-    # --- Webhook ---
-    with TestClient(webhook_server.app) as client:
-        r = client.post("/moyasar/webhook", json={"type": "invoice_paid", "data": {"id": "inv_1"}, "secret_token": "wrong"})
-        assert r.status_code == 401
+    # --- Webhook ميسر ---
+    hook = app_logic.handle_moyasar_webhook
+    assert (await hook({"type": "invoice_paid", "data": {"id": "inv_1"}, "secret_token": "wrong"}, None))[0] == 401
+    assert (await hook({"type": "invoice_paid", "data": {"id": "inv_1"}, "secret_token": "test-secret"}, None))[1]["status"] == "not_paid"
+    invoices["inv_1"].update(status="paid", payments=[{"id": "pay_1", "status": "paid", "source": {}}])
+    assert (await hook({"type": "payment_paid", "data": {"invoice_id": "inv_1"}, "secret_token": "test-secret"}, None))[1]["status"] == "ok"
+    assert (await hook({"type": "invoice_paid", "data": {"id": "inv_1"}}, "test-secret"))[1]["status"] == "already"
+    assert "تم تفعيل اشتراكك" in notify_ctx.bot.send_message.call_args.kwargs["text"]
 
-        # غير مدفوعة فعلياً عند ميسر -> لا تفعيل (حماية من إشعار مزيف)
-        r = client.post("/moyasar/webhook", json={"type": "invoice_paid", "data": {"id": "inv_1"}, "secret_token": "test-secret"})
-        assert r.json()["status"] == "not_paid"
+    sub = db.db().collection("subscriptions").document("inv_1").get().to_dict()
+    assert sub["status"] == "active" and sub["paymentId"] == "pay_1"
+    first_end = sub["endDate"]
+    assert 89 <= (first_end - db.utcnow()).days <= 90
 
-        invoices["inv_1"].update(status="paid", payments=[{"id": "pay_1", "status": "paid", "source": {}}])
-        r = client.post("/moyasar/webhook", json={"type": "payment_paid", "data": {"invoice_id": "inv_1"}, "secret_token": "test-secret"})
-        assert r.json()["status"] == "ok"
-        r = client.post("/moyasar/webhook", json={"type": "invoice_paid", "data": {"id": "inv_1"}},
-                        headers={"x-moyasar-token": "test-secret"})
-        assert r.json()["status"] == "already"
+    db.clear_caches()
+    upd = make_update(MEMBER_TG)
+    await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
+    upd.effective_message.delete.assert_not_awaited()
 
-        sub = db.db().collection("subscriptions").document("inv_1").get().to_dict()
-        assert sub["status"] == "active" and sub["paymentId"] == "pay_1"
-        first_end = sub["endDate"]
-        assert 89 <= (first_end - db.utcnow()).days <= 90
+    # --- التجديد يُضاف على نهاية الاشتراك الحالي (عبر صفحة الرجوع) ---
+    await choose("plan_6m")
+    invoices["inv_2"].update(status="paid", payments=[{"id": "pay_2", "status": "paid"}])
+    assert "تم الدفع بنجاح" in await app_logic.payment_callback_html("pay_2", "inv_2")
+    sub2 = db.db().collection("subscriptions").document("inv_2").get().to_dict()
+    assert abs((sub2["startDate"] - first_end).total_seconds()) < 2
+    assert (sub2["endDate"] - first_end).days == 180
 
-        # المشترك الآن تمر رسالته
-        db.clear_caches()
-        upd = make_update(MEMBER_TG)
-        await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
-        upd.effective_message.delete.assert_not_awaited()
+    # --- مبلغ لا يطابق ---
+    await choose("plan_6m")
+    invoices["inv_3"].update(status="paid", amount=100)
+    assert (await hook({"type": "invoice_paid", "data": {"id": "inv_3"}, "secret_token": "test-secret"}, None))[1]["status"] == "amount_mismatch"
 
-        # --- التجديد يُضاف على نهاية الاشتراك الحالي ---
-        await choose("plan_6m")
-        invoices["inv_2"].update(status="paid", amount=8000, payments=[{"id": "pay_2", "status": "paid"}])
-        r = client.get("/payment/callback", params={"id": "pay_2", "invoice_id": "inv_2"})
-        assert "تم الدفع بنجاح" in r.text
-        sub2 = db.db().collection("subscriptions").document("inv_2").get().to_dict()
-        assert abs((sub2["startDate"] - first_end).total_seconds()) < 2
-        assert (sub2["endDate"] - first_end).days == 180
+    # --- config.js ---
+    js = await app_logic.config_js({"firestore": "", "auth": ""})
+    assert "window.CLOUD_CONFIG" in js and "CloudTestBot" in js and "plan_3m" in js
 
-        # --- مبلغ لا يطابق -> رفض ---
-        await choose("plan_6m")
-        invoices["inv_3"].update(status="paid", amount=100)
-        r = client.post("/moyasar/webhook", json={"type": "invoice_paid", "data": {"id": "inv_3"}, "secret_token": "test-secret"})
-        assert r.json()["status"] == "amount_mismatch"
-
-        # --- الموقع و config.js ---
-        assert "window.CLOUD_CONFIG" in client.get("/config.js").text
-        assert "بوت Cloud" in client.get("/").text
+    # --- التذكير ---
+    ctx = make_ctx()
+    assert await bot_handlers.run_reminders(ctx.bot) == 1
+    assert "مقتصرٌ على المشتركين" in ctx.bot.send_message.call_args.kwargs["text"]
 
     # --- الانتهاء ---
     for doc in db.db().collection("subscriptions").where("status", "==", "active").stream():
         doc.reference.update({"endDate": db.utcnow() - dt.timedelta(minutes=1)})
     ctx = make_ctx()
-    await bot_handlers.check_expired_subscriptions_job(ctx)
+    assert await bot_handlers.run_expiry(ctx.bot) == 2
     statuses = {d.id: d.to_dict()["status"] for d in db.db().collection("subscriptions").stream()}
     assert statuses["inv_1"] == "expired" and statuses["inv_2"] == "expired"
-    assert ctx.bot.send_message.await_count == 2
     upd = make_update(MEMBER_TG)
     await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
     upd.effective_message.delete.assert_awaited_once()
@@ -297,10 +294,12 @@ async def test_full_flow(monkeypatch):
     assert all(d.to_dict()["groupId"] == -100999 for d in db.db().collection("subscriptions").stream())
 
 
-async def test_admin_sync():
+async def test_admin_requires_verified_email():
     from firebase_admin import auth
 
-    user = auth.create_user(email="boss@example.com", password="secret123")
-    db.db().collection("owners").document(user.uid).set({"name": "Boss", "email": "boss@example.com", "role": "owner"})
+    uid = create_owner("boss@example.com", "Boss", verified=False)
     await db.sync_admin_roles()
-    assert db.db().collection("owners").document(user.uid).get().to_dict()["role"] == "admin"
+    assert db.db().collection("owners").document(uid).get().to_dict()["role"] == "owner"
+    auth.update_user(uid, email_verified=True)
+    await db.sync_admin_roles()
+    assert db.db().collection("owners").document(uid).get().to_dict()["role"] == "admin"
