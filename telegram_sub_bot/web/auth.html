@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cloud — تسجيل الدخول وإنشاء حساب</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/assets/style.css" />
+  <script src="/config.js"></script>
+</head>
+<body class="center-page">
+  <div class="card auth-card">
+    <a href="/" class="brand"><span class="brand-logo" id="logo"></span>Cloud</a>
+
+    <div class="tabs">
+      <button type="button" data-tab="login">تسجيل الدخول</button>
+      <button type="button" data-tab="register">إنشاء حساب</button>
+    </div>
+
+    <div id="msg"></div>
+
+    <form id="loginForm" class="hidden" novalidate>
+      <div class="field"><label for="lEmail">البريد الإلكتروني</label><input id="lEmail" type="email" autocomplete="email" required class="ltr" /></div>
+      <div class="field"><label for="lPass">كلمة المرور</label><input id="lPass" type="password" autocomplete="current-password" required class="ltr" /></div>
+      <button class="btn btn-primary btn-block" type="submit">دخول</button>
+      <p class="center" style="margin-top:16px"><button type="button" class="link-btn" id="forgotBtn">نسيت كلمة المرور؟</button></p>
+    </form>
+
+    <form id="registerForm" class="hidden" novalidate>
+      <div class="field"><label for="rName">الاسم الكامل</label><input id="rName" autocomplete="name" required maxlength="80" /></div>
+      <div class="field"><label for="rEmail">البريد الإلكتروني</label><input id="rEmail" type="email" autocomplete="email" required class="ltr" /></div>
+      <div class="field"><label for="rPhone">رقم الجوال</label><input id="rPhone" type="tel" autocomplete="tel" placeholder="05xxxxxxxx" maxlength="20" class="ltr" /></div>
+      <div class="field"><label for="rTg">معرّفك في تليجرام (اختياري)</label><input id="rTg" placeholder="@username" maxlength="40" class="ltr" /></div>
+      <div class="field"><label for="rPass">كلمة المرور</label><input id="rPass" type="password" autocomplete="new-password" required minlength="6" class="ltr" /><small>6 أحرف على الأقل</small></div>
+      <div class="field"><label for="rPass2">تأكيد كلمة المرور</label><input id="rPass2" type="password" autocomplete="new-password" required class="ltr" /></div>
+      <label class="check"><input type="checkbox" id="rTerms" /> <span>أوافق على <a href="/#terms" target="_blank">شروط الخدمة وسياسة الاسترجاع</a></span></label>
+      <button class="btn btn-primary btn-block" type="submit">إنشاء الحساب</button>
+    </form>
+  </div>
+
+<script type="module">
+  import { ICONS, $, $$, esc, authErrorMessage } from "/assets/common.js";
+  import {
+    auth, db, configured, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+    sendPasswordResetEmail, sendEmailVerification, updateProfile, doc, setDoc, serverTimestamp,
+  } from "/assets/firebase.js";
+
+  $("#logo").innerHTML = ICONS.cloud;
+  const msg = (text, type = "error") => ($("#msg").innerHTML = text ? `<div class="alert alert-${type}">${esc(text)}</div>` : "");
+
+  function showTab(tab) {
+    $$(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    $("#loginForm").classList.toggle("hidden", tab !== "login");
+    $("#registerForm").classList.toggle("hidden", tab !== "register");
+    msg("");
+    history.replaceState(null, "", "#" + tab);
+  }
+  $$(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  showTab(location.hash === "#register" ? "register" : "login");
+
+  if (!configured) msg("لم يتم ضبط إعدادات Firebase في السيرفر بعد (راجع ملف README).");
+
+  let registering = false;
+  onAuthStateChanged(auth, (u) => { if (u && !registering) location.replace("/dashboard.html"); });
+
+  const busy = (form, on) => form.querySelectorAll("button").forEach((b) => (b.disabled = on));
+
+  $("#loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    busy(e.target, true);
+    try {
+      await signInWithEmailAndPassword(auth, $("#lEmail").value.trim(), $("#lPass").value);
+    } catch (err) {
+      msg(authErrorMessage(err));
+      busy(e.target, false);
+    }
+  });
+
+  $("#forgotBtn").addEventListener("click", async () => {
+    const email = $("#lEmail").value.trim();
+    if (!email) return msg("اكتب بريدك الإلكتروني أولاً ثم اضغط «نسيت كلمة المرور».");
+    try {
+      await sendPasswordResetEmail(auth, email);
+      msg("تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك (تحقق من البريد المزعج أيضاً).", "ok");
+    } catch (err) { msg(authErrorMessage(err)); }
+  });
+
+  $("#registerForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#rName").value.trim();
+    const email = $("#rEmail").value.trim();
+    const phone = $("#rPhone").value.trim();
+    const tg = $("#rTg").value.trim().replace(/^@/, "");
+    const pass = $("#rPass").value;
+    if (name.length < 2) return msg("اكتب اسمك الكامل.");
+    if (phone && !/^[0-9+\s-]{8,20}$/.test(phone)) return msg("رقم الجوال غير صحيح.");
+    if (pass.length < 6) return msg("كلمة المرور يجب أن تكون 6 أحرف على الأقل.");
+    if (pass !== $("#rPass2").value) return msg("كلمتا المرور غير متطابقتين.");
+    if (!$("#rTerms").checked) return msg("يجب الموافقة على شروط الخدمة.");
+
+    busy(e.target, true);
+    registering = true;
+    try {
+      const { user } = await createUserWithEmailAndPassword(auth, email, pass);
+      await updateProfile(user, { displayName: name });
+      await setDoc(doc(db, "owners", user.uid), {
+        name, email: user.email, phone, telegramUsername: tg, role: "owner", createdAt: serverTimestamp(),
+      });
+      sendEmailVerification(user).catch(() => {});
+      location.replace("/dashboard.html?welcome=1");
+    } catch (err) {
+      registering = false;
+      msg(authErrorMessage(err));
+      busy(e.target, false);
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cloud — لوحة التحكم</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" />
+  <link rel="stylesheet" href="/assets/style.css" />
+  <script src="/config.js"></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <a href="/" class="brand"><span class="brand-logo logo"></span>Cloud</a>
+    <nav class="nav" id="nav"></nav>
+    <div class="me"><b id="meName">…</b><span class="muted" id="meEmail"></span>
+      <div style="margin-top:10px"><button class="btn btn-outline btn-sm btn-block logout">تسجيل الخروج</button></div>
+    </div>
+  </aside>
+
+  <div>
+    <nav class="mobile-nav" id="mnav"></nav>
+    <main class="main" id="main"><div class="loader">جاري التحميل…</div></main>
+  </div>
+</div>
+
+<div class="modal-bg hidden" id="confirmModal">
+  <div class="card modal">
+    <h2 id="confirmTitle"></h2>
+    <p class="muted" id="confirmText" style="margin-bottom:18px"></p>
+    <div class="modal-actions"><button class="btn btn-danger" id="confirmYes">تأكيد</button><button class="btn btn-outline" id="confirmNo">إلغاء</button></div>
+  </div>
+</div>
+
+<script type="module" src="/assets/dashboard.js"></script>
+</body>
+</html>

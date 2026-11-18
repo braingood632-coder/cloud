@@ -1,0 +1,84 @@
+rules_version = '2';
+
+// قواعد حماية قاعدة البيانات:
+// - كل صاحب قروب يرى بياناته فقط (قروباته، مشتركيه، تحويلاته).
+// - الاشتراكات لا يكتبها إلا السيرفر (Admin SDK يتجاوز هذه القواعد).
+// - الأدمن (role == 'admin') يرى كل شيء ويسجّل التحويلات.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/owners/$(request.auth.uid))
+        && get(/databases/$(database)/documents/owners/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function profileFields() {
+      return ['name', 'phone', 'telegramUsername', 'bankName', 'iban', 'accountHolder', 'updatedAt'];
+    }
+
+    function validProfile(d) {
+      return d.name is string && d.name.size() >= 2 && d.name.size() <= 80
+        && (!('phone' in d) || (d.phone is string && d.phone.size() <= 20))
+        && (!('telegramUsername' in d) || (d.telegramUsername is string && d.telegramUsername.size() <= 40))
+        && (!('bankName' in d) || (d.bankName is string && d.bankName.size() <= 60))
+        && (!('iban' in d) || (d.iban is string && d.iban.size() <= 34))
+        && (!('accountHolder' in d) || (d.accountHolder is string && d.accountHolder.size() <= 80));
+    }
+
+    match /owners/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(profileFields().concat(['email', 'role', 'createdAt']))
+        && request.resource.data.role == 'owner'
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.createdAt == request.time
+        && validProfile(request.resource.data);
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileFields())
+        && validProfile(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /linkCodes/{code} {
+      allow create: if signedIn()
+        && code.matches('^[A-Z0-9]{8}$')
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow read, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /groups/{groupId} {
+      allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      // صاحب القروب يستطيع فقط تشغيل/إيقاف رسالة التذكير، أو فك الربط
+      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['remindersEnabled'])
+        && request.resource.data.remindersEnabled is bool;
+      allow delete: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if false;
+    }
+
+    match /subscriptions/{subId} {
+      allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /payouts/{payoutId} {
+      allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'amount', 'note', 'reference', 'createdAt', 'createdBy'])
+        && request.resource.data.ownerUid is string
+        && request.resource.data.amount is number && request.resource.data.amount > 0
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow delete: if isAdmin();
+      allow update: if false;
+    }
+  }
+}
