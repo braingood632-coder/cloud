@@ -28,7 +28,23 @@ def _project_id() -> str:
             pid = json.loads(_get("FIREBASE_CONFIG")).get("projectId", "")
         except ValueError:
             pid = ""
+    if not pid:
+        pid = (service_account_info() or {}).get("project_id", "")
     return pid
+
+
+def service_account_info() -> dict | None:
+    """
+    مفتاح Service Account لتشغيل البوت خارج Firebase (مثل Render):
+      FIREBASE_SERVICE_ACCOUNT  محتوى ملف JSON كاملاً، أو مسار الملف (مثل /etc/secrets/firebase.json)
+    """
+    raw = _get("FIREBASE_SERVICE_ACCOUNT").strip()
+    if not raw:
+        return None
+    if not raw.startswith("{"):
+        with open(raw, encoding="utf-8") as f:
+            raw = f.read()
+    return json.loads(raw)
 
 
 class Settings:
@@ -82,11 +98,25 @@ class Settings:
         return _project_id()
 
     @property
+    def FIRESTORE_DATABASE(self) -> str:
+        """اسم قاعدة Firestore (فارغ = (default)). يفيد عند مشاركة مشروع Firebase مع تطبيق آخر."""
+        return _get("FIRESTORE_DATABASE").strip()
+
+    @property
     def PUBLIC_BASE_URL(self) -> str:
         """رابط الموقع. افتراضياً رابط Firebase Hosting: https://<project>.web.app"""
         url = _get("PUBLIC_BASE_URL")
         if not url and self.FIREBASE_PROJECT_ID:
             url = f"https://{self.FIREBASE_PROJECT_ID}.web.app"
+        return url.rstrip("/")
+
+    @property
+    def API_BASE_URL(self) -> str:
+        """
+        رابط سيرفر البوت (Webhook تليجرام، إشعار ميسر، صفحة الرجوع، /config.js).
+        على Firebase Functions = رابط الموقع نفسه. على Render يُؤخذ تلقائياً من RENDER_EXTERNAL_URL.
+        """
+        url = _get("API_BASE_URL") or _get("RENDER_EXTERNAL_URL") or self.PUBLIC_BASE_URL
         return url.rstrip("/")
 
     # --- للاختبار فقط (توجيه الطلبات لخوادم وهمية) ---

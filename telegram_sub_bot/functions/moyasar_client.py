@@ -42,7 +42,7 @@ async def create_invoice(
         "amount": amount_halalas,
         "currency": "SAR",
         "description": description,
-        "callback_url": f"{settings.PUBLIC_BASE_URL}/payment/callback",
+        "callback_url": f"{settings.API_BASE_URL}/payment/callback",
         "expired_at": expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "metadata": {
             "telegram_user_id": str(telegram_user_id),

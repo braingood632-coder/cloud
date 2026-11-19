@@ -9,6 +9,11 @@
 - `firestore.rules` قواعد الحماية — `firebase.json` التوجيهات (rewrites) والإعدادات
 - `tests/` اختبارات على Firebase Emulator
 
+## طريقة التشغيل الحالية: Render + Firebase المجاني
+البوت يعمل على **Render** (`functions/server.py`, `render.yaml`) والموقع/Auth/Firestore على Firebase بخطة Spark
+(مشروع `cloud-tg-platform`). اتبع `telegram_sub_bot/DEPLOY-RENDER.md`. القسم التالي (Cloud Functions) يحتاج Blaze،
+ولإرجاعه أعِد `functions` و `rewrites` إلى `firebase.json` من سجل git.
+
 ## عند طلب المستخدم "ارفعه" / "سوّ deploy" / "شغّله على فايربيس"
 اتبع `telegram_sub_bot/DEPLOY.md` القسم (ب) بالترتيب، من داخل `telegram_sub_bot/`:
 1. تأكد من `firebase --version` (وإلا `npm install -g firebase-tools`) ثم `firebase login` إن لزم.

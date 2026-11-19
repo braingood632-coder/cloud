@@ -28,7 +28,7 @@ from firebase_admin import auth as fb_auth
 from firebase_admin import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-from config import CACHE_TTL_SECONDS, LINK_CODE_TTL_MINUTES, PLANS, settings
+from config import CACHE_TTL_SECONDS, LINK_CODE_TTL_MINUTES, PLANS, service_account_info, settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,15 @@ def init_firebase() -> None:
         return
 
     if not firebase_admin._apps:
-        firebase_admin.initialize_app(options={"projectId": settings.FIREBASE_PROJECT_ID} if settings.FIREBASE_PROJECT_ID else None)
+        options = {"projectId": settings.FIREBASE_PROJECT_ID} if settings.FIREBASE_PROJECT_ID else None
+        sa = service_account_info()
+        if sa and not os.getenv("FIRESTORE_EMULATOR_HOST"):
+            # خارج Firebase (Render): الدخول بمفتاح Service Account
+            from firebase_admin import credentials
+
+            firebase_admin.initialize_app(credentials.Certificate(sa), options=options)
+        else:
+            firebase_admin.initialize_app(options=options)
 
     if os.getenv("FIRESTORE_EMULATOR_HOST"):
         # التجربة المحلية على Firebase Emulator
@@ -55,7 +63,7 @@ def init_firebase() -> None:
 
         _db = gc_firestore.Client(project=settings.FIREBASE_PROJECT_ID, credentials=AnonymousCredentials())
     else:
-        _db = firestore.client()
+        _db = firestore.client(database_id=settings.FIRESTORE_DATABASE or None)
 
 
 def db() -> firestore.firestore.Client:

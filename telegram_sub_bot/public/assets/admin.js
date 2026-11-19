@@ -42,7 +42,7 @@ if (configured) {
       await reload(user).catch(() => {});
       let claim = {};
       try {
-        const res = await fetch("/api/claim-admin", {
+        const res = await fetch(((window.CLOUD_CONFIG || {}).apiBase || "") + "/api/claim-admin", {
           method: "POST", headers: { Authorization: "Bearer " + (await user.getIdToken(true)) },
         });
         claim = await res.json().catch(() => ({}));

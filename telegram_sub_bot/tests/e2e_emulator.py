@@ -30,8 +30,14 @@ ROUTES = {"/config.js": "webconfig", "/telegram/webhook": "telegramwebhook", "/m
           "/payment/callback": "paymentcallback", "/api/setup-webhook": "setupwebhook", "/api/claim-admin": "claimadmin"}
 
 
+# وضع السيرفر (Render): E2E_API_BASE=http://127.0.0.1:8000 — كل مسارات البوت تذهب لسيرفر server.py
+API = os.environ.get("E2E_API_BASE", "").rstrip("/")
+
+
 def url(path: str) -> str:
     base, _, query = path.partition("?")
+    if base in ROUTES and API:
+        return API + path
     return f"{FN}/{ROUTES[base]}" + (f"?{query}" if query else "") if base in ROUTES else SITE + path
 FAKE = "http://127.0.0.1:8900"
 GROUP = -100777
@@ -81,7 +87,7 @@ def main():
     httpx.post(FAKE + "/_reset", json={"webhook": True})
     r = httpx.get(url("/api/setup-webhook"), timeout=60).json()
     sw = calls("setWebhook")
-    check(r.get("changed") and sw and sw[-1]["params"]["url"] == SITE + "/telegram/webhook", "setup-webhook registers Telegram webhook (Hosting URL)")
+    check(r.get("changed") and sw and sw[-1]["params"]["url"] == (API or SITE) + "/telegram/webhook", "setup-webhook registers Telegram webhook (Hosting URL)")
     secret = sw[-1]["params"]["secret_token"]
     check(set(sw[-1]["params"]["allowed_updates"]) == {"message", "callback_query", "my_chat_member"}, "allowed_updates set")
 
@@ -107,7 +113,14 @@ def main():
     check(any(c["params"].get("message_id") == 10 for c in calls("deleteMessage")), "non-subscriber message deleted")
     warn = [c for c in calls("sendMessage") if "للمشتركين فقط" in c["params"].get("text", "")]
     check(bool(warn) and f"sub_{GROUP}" in str(warn[-1]["params"].get("reply_markup")), "warning with subscribe button sent")
-    check(len(list(db.db().collection("pendingDeletes").stream())) == 1, "warning scheduled for deletion")
+    if API:
+        # السيرفر يحذف التنبيه بمؤقّت داخلي بعد 20 ثانية
+        warn_ids = {c["params"].get("message_id") for c in calls("deleteMessage")}
+        time.sleep(22)
+        later = [c for c in calls("deleteMessage") if c["params"].get("message_id") not in warn_ids]
+        check(bool(later), "warning auto-deleted after 20 seconds (server timer)")
+    else:
+        check(len(list(db.db().collection("pendingDeletes").stream())) == 1, "warning scheduled for deletion")
 
     # 7) /start في الخاص بدون رابط -> الباقات مباشرة
     httpx.post(FAKE + "/_reset")
@@ -150,6 +163,13 @@ def main():
     # 12) صفحة الرجوع
     page = httpx.get(url(f"/payment/callback?invoice_id={inv_id}"), timeout=60).text
     check("تم الدفع بنجاح" in page, "payment callback page shows success")
+
+    if API:
+        pre = httpx.options(url("/api/claim-admin"), headers={"Origin": SITE, "Access-Control-Request-Method": "POST"}, timeout=30)
+        check(pre.status_code == 204 and pre.headers.get("access-control-allow-origin") == "*", "claim-admin CORS preflight ok (site on another domain)")
+        bad = httpx.post(url("/api/claim-admin"), headers={"Authorization": "Bearer bad"}, timeout=30)
+        check(bad.status_code == 401, "claim-admin rejects invalid token")
+        check("apiBase" in js and API in js, "config.js tells the site where the bot server is")
 
     # 13) الموقع الثابت
     check("بوت Cloud" in httpx.get(SITE + "/").text, "landing page served by Hosting")

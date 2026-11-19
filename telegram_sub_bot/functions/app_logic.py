@@ -75,7 +75,7 @@ async def process_telegram_update(data: dict) -> None:
 async def ensure_webhook() -> dict:
     """يضبط رابط الـ Webhook في تليجرام إن لم يكن مضبوطاً (يُستدعى كل ساعة وعند الإعداد)."""
     app = await get_application()
-    url = f"{settings.PUBLIC_BASE_URL}/telegram/webhook"
+    url = f"{settings.API_BASE_URL}/telegram/webhook"
     info = await app.bot.get_webhook_info()
     if info.url != url:
         await app.bot.set_webhook(
@@ -166,7 +166,7 @@ async def handle_moyasar_webhook(payload: dict, header_token: Optional[str]) -> 
 
 _RESULT_PAGE = """<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Cloud — نتيجة الدفع</title>
-<link rel="stylesheet" href="/assets/style.css"></head><body class="center-page">
+<link rel="stylesheet" href="{site}/assets/style.css"></head><body class="center-page">
 <div class="card result-card"><div class="result-icon">{icon}</div><h1>{title}</h1><p>{text}</p>
 {button}</div></body></html>"""
 
@@ -186,12 +186,12 @@ async def payment_callback_html(payment_id: Optional[str], invoice_id: Optional[
     username = await bot_username()
     button = f'<a class="btn btn-primary" href="https://t.me/{username}">العودة إلى البوت</a>' if username else ""
     if result in ("ok", "already"):
-        return _RESULT_PAGE.format(icon="✅", title="تم الدفع بنجاح",
+        return _RESULT_PAGE.format(site=settings.PUBLIC_BASE_URL, icon="✅", title="تم الدفع بنجاح",
                                    text="تم تفعيل اشتراكك، ويمكنك الآن النشر في المجموعة. وصلتك رسالة تأكيد من البوت.", button=button)
     if result == "not_paid":
-        return _RESULT_PAGE.format(icon="⚠️", title="لم تكتمل عملية الدفع",
+        return _RESULT_PAGE.format(site=settings.PUBLIC_BASE_URL, icon="⚠️", title="لم تكتمل عملية الدفع",
                                    text="لم يتم خصم أي مبلغ. يمكنك المحاولة مرة أخرى من البوت.", button=button)
-    return _RESULT_PAGE.format(icon="⏳", title="جارٍ التحقق من الدفع",
+    return _RESULT_PAGE.format(site=settings.PUBLIC_BASE_URL, icon="⏳", title="جارٍ التحقق من الدفع",
                                text="إذا تم الخصم فسيُفعَّل اشتراكك خلال دقائق وتصلك رسالة من البوت. لأي استفسار تواصل مع الدعم الفني @"
                                + settings.SUPPORT_USERNAME, button=button)
 
@@ -220,6 +220,9 @@ async def config_js(emulators: dict) -> str:
         # إعدادات Firebase للويب تُجلب تلقائياً من /__/firebase/init.json على Firebase Hosting
         "firebase": {"projectId": settings.FIREBASE_PROJECT_ID} if any(emulators.values()) else {},
         "emulators": emulators,
+        "firestoreDatabase": "" if any(emulators.values()) else settings.FIRESTORE_DATABASE,
+        # رابط سيرفر البوت إن كان منفصلاً عن الموقع (Render)، وإلا فارغ (نفس الموقع)
+        "apiBase": settings.API_BASE_URL if settings.API_BASE_URL != settings.PUBLIC_BASE_URL else "",
         "botUsername": await bot_username(),
         "botName": settings.BOT_NAME,
         "supportUsername": settings.SUPPORT_USERNAME,

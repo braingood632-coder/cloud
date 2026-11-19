@@ -29,7 +29,7 @@ if (!firebaseConfig.apiKey && usingEmulators) firebaseConfig.apiKey = "demo-key"
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 auth.languageCode = "ar";
-export const db = getFirestore(app);
+export const db = CFG.firestoreDatabase ? getFirestore(app, CFG.firestoreDatabase) : getFirestore(app);
 
 if (CFG.emulators?.auth) connectAuthEmulator(auth, "http://" + CFG.emulators.auth, { disableWarnings: true });
 if (CFG.emulators?.firestore) {

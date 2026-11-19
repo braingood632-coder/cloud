@@ -1,0 +1,40 @@
+# سيرفر بوت منصة Cloud على Render (الموقع وقاعدة البيانات على Firebase بالخطة المجانية).
+# الشرح: telegram_sub_bot/DEPLOY-RENDER.md
+services:
+  - type: web
+    name: cloud-bot
+    runtime: python
+    plan: starter            # مدفوعة (~7$) = لا ينام أبداً. المجانية تنام بعد 15 دقيقة فتتوقف المهام المجدولة
+    region: frankfurt        # الأقرب للسعودية ولقاعدة Firestore (eur3)
+    rootDir: telegram_sub_bot/functions
+    buildCommand: pip install -r requirements-server.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      # --- أسرار: تُكتب في لوحة Render عند الإنشاء (لا تُحفظ في المستودع) ---
+      - key: BOT_TOKEN
+        sync: false
+      - key: MOYASAR_SECRET_KEY
+        sync: false
+      - key: MOYASAR_WEBHOOK_SECRET
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT      # محتوى ملف JSON لمفتاح Service Account من Firebase
+        sync: false
+      # --- إعدادات عادية ---
+      - key: FIREBASE_PROJECT_ID
+        value: cloud-tg-platform
+      - key: PUBLIC_BASE_URL               # رابط الموقع (غيّره لدومينك إذا ربطته)
+        value: https://cloud-tg-platform.web.app
+      - key: ADMIN_EMAILS
+        value: braingood632@gmail.com
+      - key: OWNER_TELEGRAM_ID
+        value: "6346652212"
+      - key: SUPPORT_USERNAME
+        value: radhadh91
+      - key: PLATFORM_COMMISSION_PERCENT
+        value: "0"
+      - key: BOT_NAME
+        value: Cloud
