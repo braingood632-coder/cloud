@@ -27,7 +27,7 @@ services:
       - key: FIREBASE_PROJECT_ID
         value: cloud-tg-platform
       - key: PUBLIC_BASE_URL               # رابط الموقع (غيّره لدومينك إذا ربطته)
-        value: https://cloud-tg-platform.web.app
+        value: https://cloudtg.fyi
       - key: ADMIN_EMAILS
         value: braingood632@gmail.com
       - key: OWNER_TELEGRAM_ID

@@ -33,7 +33,7 @@
     "redirects": [
       {
         "source": "/config.js",
-        "destination": "https://RENDER_URL/config.js",
+        "destination": "https://cloud-bot-cv4p.onrender.com/config.js",
         "type": 302
       }
     ]
