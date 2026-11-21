@@ -68,7 +68,7 @@ def _subscribe_keyboard(bot_username: str, chat_id: int) -> InlineKeyboardMarkup
 def _plans_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     rows = []
     for key, plan in PLANS.items():
-        label = f"{plan['name']} ← {plan['price']:.0f} ريال ← {plan['days']} يوماً"
+        label = f"{plan['name']} -> {plan['price']:.0f} ريال -> {plan['days']} يوم"
         rows.append([InlineKeyboardButton(label, callback_data=f"plan|{chat_id}|{key}")])
     return InlineKeyboardMarkup(rows)
 
@@ -209,7 +209,7 @@ async def _plans_message(group_id: int, group: dict, user_id: int) -> dict:
         if end else ""
     )
     return {
-        "text": f"👥 المجموعة: {group.get('title', '')}\n\n{current}📦 قم باختيار إحدى باقات الاشتراك التالية 📦",
+        "text": f"{current}📦 قم باختيار إحدى باقات الاشتراك التالية 📦",
         "reply_markup": _plans_keyboard(group_id),
     }
 
@@ -304,11 +304,7 @@ async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     await query.edit_message_text(
-        text=(
-            f"📦 {plan['name']} — {plan['price']:.0f} ريال — {plan['days']} يوماً\n"
-            f"👥 المجموعة: {group.get('title', '')}\n\n"
-            f"اضغط للاشتراك. تنتهي العملية خلال {INVOICE_EXPIRY_MINUTES} دقيقة ⏳"
-        ),
+        text=f"اضغط للاشتراك. تنتهي العملية خلال {INVOICE_EXPIRY_MINUTES} دقيقة",
         reply_markup=InlineKeyboardMarkup(
             [[InlineKeyboardButton("✅ اشترك ✅", web_app=WebAppInfo(url=hosted_url))]]
         ),
@@ -393,8 +389,9 @@ async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYP
     warning = await context.bot.send_message(
         chat_id=chat.id,
         text=(
-            f"⚠️ عذراً {user.mention_html()}، النشر في هذه المجموعة متاحٌ للمشتركين فقط.\n"
-            "اشترك الآن لتتمكن من المشاركة فوراً 👇"
+            f"{user.mention_html()}\n"
+            "⚠️ الاشتراك إلزامي للجميع لمنع الأرقام الوهمية والمحتالين ⚠️\n"
+            "الكتابة هنا للمشتركين فقط، اضغط «اشترك» 👇"
         ),
         parse_mode=ParseMode.HTML,
         reply_markup=_subscribe_keyboard(context.bot.username, chat.id),
@@ -409,18 +406,7 @@ async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYP
 # ---------------------------------------------------------------------------
 
 def build_reminder_text(group_title: str) -> str:
-    lines = [
-        "⚠️ تنبيه هام لأعضاء المجموعة ⚠️",
-        "",
-        f"النشر في مجموعة «{group_title}» مقتصرٌ على المشتركين فقط؛ حفاظاً على جودة المحتوى، "
-        "ومنعاً للإعلانات العشوائية والأرقام الوهمية والمحتالين.",
-        "",
-        "📦 باقات الاشتراك المتاحة:",
-    ]
-    for plan in PLANS.values():
-        lines.append(f"• {plan['name']} — {plan['price']:.0f} ريال لمدة {plan['days']} يوماً")
-    lines += ["", "للاشتراك وتفعيل صلاحية النشر فوراً، اضغط على الزر أدناه 👇"]
-    return "\n".join(lines)
+    return "⚠️ الاشتراك إلزامي للجميع لمنع الأرقام الوهمية والمحتالين ⚠️"
 
 
 async def run_reminders(bot: Bot) -> int:

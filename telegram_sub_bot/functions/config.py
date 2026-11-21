@@ -137,7 +137,7 @@ settings = Settings()
 # ---------------------------------------------------------------------------
 PLANS: dict[str, dict] = {
     "plan_3m": {"name": "الباقة الذهبية", "price": 50.0, "days": 90, "label": "3 أشهر"},
-    "plan_6m": {"name": "باقة 80 ريال", "price": 80.0, "days": 180, "label": "6 أشهر"},
+    "plan_6m": {"name": "باقة 6 أشهر", "price": 80.0, "days": 180, "label": "6 أشهر"},
 }
 
 INVOICE_EXPIRY_MINUTES = 30          # صلاحية فاتورة ميسر

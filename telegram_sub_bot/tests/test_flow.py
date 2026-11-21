@@ -267,7 +267,7 @@ async def test_full_flow(monkeypatch):
     # --- التذكير ---
     ctx = make_ctx()
     assert await bot_handlers.run_reminders(ctx.bot) == 1
-    assert "مقتصرٌ على المشتركين" in ctx.bot.send_message.call_args.kwargs["text"]
+    assert "الاشتراك إلزامي للجميع" in ctx.bot.send_message.call_args.kwargs["text"]
 
     # --- الانتهاء ---
     for doc in db.db().collection("subscriptions").where("status", "==", "active").stream():
