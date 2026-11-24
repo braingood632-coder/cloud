@@ -46,8 +46,10 @@ MEMBER_TG = 222
 
 
 def _clear_emulator():
-    httpx.delete("http://127.0.0.1:8080/emulator/v1/projects/demo-cloud/databases/(default)/documents")
-    httpx.delete("http://127.0.0.1:9099/emulator/v1/projects/demo-cloud/accounts")
+    fs = os.environ["FIRESTORE_EMULATOR_HOST"]
+    au = os.environ["FIREBASE_AUTH_EMULATOR_HOST"]
+    httpx.delete(f"http://{fs}/emulator/v1/projects/demo-cloud/databases/(default)/documents")
+    httpx.delete(f"http://{au}/emulator/v1/projects/demo-cloud/accounts")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -94,6 +96,7 @@ def make_update(user_id, chat_type=ChatType.SUPERGROUP, chat_id=GROUP_ID):
     message.delete = AsyncMock()
     message.sender_chat = None
     message.is_automatic_forward = False
+    message.text = None
     user = MagicMock(id=user_id, is_bot=False, full_name="عضو تجريبي", username="member1")
     user.mention_html.return_value = "<a>عضو</a>"
     chat = SimpleNamespace(id=chat_id, type=chat_type, title="قروب عقارات")
@@ -166,7 +169,7 @@ async def test_full_flow(monkeypatch):
     ctx = make_ctx(members=admins)
     await bot_handlers.guard_group_messages(upd, ctx)
     upd.effective_message.delete.assert_awaited_once()
-    assert f"start=sub_{GROUP_ID}" in str(ctx.bot.send_message.call_args.kwargs["reply_markup"].to_dict())
+    assert f"/subscribe.html?g={GROUP_ID}" in str(ctx.bot.send_message.call_args.kwargs["reply_markup"].to_dict())
     assert db.db().collection("groups").document(str(GROUP_ID)).get().to_dict()["blockedMessages"] == 1
     pending = db.db().collection("pendingDeletes").document(f"{GROUP_ID}_5").get().to_dict()
     assert pending and (pending["deleteAt"] - db.utcnow()).total_seconds() > 10
@@ -190,21 +193,23 @@ async def test_full_flow(monkeypatch):
     await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
     upd.effective_message.delete.assert_not_awaited()
 
-    # --- /start sub_<group> و /start بدون رابط ---
+    # --- /start sub_<group> و /start بدون رابط -> رابط صفحة الاشتراك في الموقع ---
     upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
     await bot_handlers.start_command(upd, make_ctx([f"sub_{GROUP_ID}"]))
-    assert "قم باختيار إحدى باقات الاشتراك" in upd.effective_message.reply_text.call_args.kwargs["text"]
+    kw = upd.effective_message.reply_text.call_args.kwargs
+    assert "موقعنا" in kw["text"] and f"subscribe.html?g={GROUP_ID}" in str(kw["reply_markup"].to_dict())
     upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
     await bot_handlers.start_command(upd, make_ctx([], admins))
-    assert f"plan|{GROUP_ID}|plan_6m" in str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
+    assert f"subscribe.html?g={GROUP_ID}" in str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
 
-    # --- اختيار الباقة -> فاتورة ---
+    # --- الدفع من صفحة الاشتراك في الموقع ---
     invoices = {}
 
-    async def fake_create_invoice(amount_sar, description, telegram_user_id, group_id, plan_key):
+    async def fake_create_invoice(amount_sar, description, metadata, success_url=None, back_url=None):
         inv_id = f"inv_{len(invoices) + 1}"
         invoices[inv_id] = {"id": inv_id, "status": "initiated", "amount": int(amount_sar * 100), "currency": "SAR",
-                            "url": f"https://checkout.moyasar.com/invoices/{inv_id}", "payments": []}
+                            "url": f"https://checkout.moyasar.com/invoices/{inv_id}", "payments": [],
+                            "metadata": metadata, "success_url": success_url}
         return invoices[inv_id]
 
     async def fake_fetch_invoice(inv_id):
@@ -213,52 +218,112 @@ async def test_full_flow(monkeypatch):
     monkeypatch.setattr(moyasar_client, "create_invoice", fake_create_invoice)
     monkeypatch.setattr(moyasar_client, "fetch_invoice", fake_fetch_invoice)
 
-    async def choose(plan_key):
-        query = MagicMock()
-        query.answer = AsyncMock()
-        query.edit_message_text = AsyncMock()
-        query.data = f"plan|{GROUP_ID}|{plan_key}"
-        query.from_user = MagicMock(id=MEMBER_TG, full_name="عضو تجريبي", username="member1")
-        await bot_handlers.choose_plan_callback(SimpleNamespace(callback_query=query), make_ctx())
-        return query
+    async def paid_code(plan_key, group=GROUP_ID):
+        status, body = await app_logic.web_checkout(plan_key, str(group) if group else None)
+        assert status == 200
+        inv = body["invoiceId"]
+        invoices[inv].update(status="paid", payments=[{"id": "pay_" + inv, "status": "paid", "source": {}}])
+        status, body = await app_logic.web_order_status(inv, None)
+        assert status == 200 and body["status"] == "ok"
+        return inv, body["code"]
 
-    q = await choose("plan_3m")
-    assert "checkout.moyasar.com" in str(q.edit_message_text.call_args.kwargs["reply_markup"].to_dict())
-    sub = db.db().collection("subscriptions").document("inv_1").get().to_dict()
-    assert sub["status"] == "pending" and sub["ownerUid"] == owner_uid
-    assert sub["amount"] == 50.0 and sub["ownerShare"] == 45.0 and sub["commission"] == 5.0
+    assert (await app_logic.web_checkout("nope", str(GROUP_ID)))[0] == 400
+    assert (await app_logic.web_checkout("plan_3m", "-1"))[0] == 404
+    assert (await app_logic.web_group_info(str(GROUP_ID)))[1]["title"] == "قروب عقارات"
+    status, body = await app_logic.web_checkout("plan_3m", str(GROUP_ID))
+    assert status == 200 and body["invoiceId"] == "inv_1" and body["url"].startswith("https://checkout.moyasar.com")
+    assert f"subscribe.html?g={GROUP_ID}" in invoices["inv_1"]["success_url"] and "paid=1" in invoices["inv_1"]["success_url"]
+    order = db.db().collection("webOrders").document("inv_1").get().to_dict()
+    assert order["status"] == "pending" and order["groupId"] == GROUP_ID and order["amount"] == 50.0
 
-    # --- Webhook ميسر ---
+    # قبل الدفع: لا يوجد كود
+    assert (await app_logic.web_order_status("inv_1", None))[1]["status"] == "not_paid"
+
+    # --- Webhook ميسر يجهّز الكود حتى لو أغلق العضو الصفحة ---
     hook = app_logic.handle_moyasar_webhook
     assert (await hook({"type": "invoice_paid", "data": {"id": "inv_1"}, "secret_token": "wrong"}, None))[0] == 401
     assert (await hook({"type": "invoice_paid", "data": {"id": "inv_1"}, "secret_token": "test-secret"}, None))[1]["status"] == "not_paid"
     invoices["inv_1"].update(status="paid", payments=[{"id": "pay_1", "status": "paid", "source": {}}])
     assert (await hook({"type": "payment_paid", "data": {"invoice_id": "inv_1"}, "secret_token": "test-secret"}, None))[1]["status"] == "ok"
-    assert (await hook({"type": "invoice_paid", "data": {"id": "inv_1"}}, "test-secret"))[1]["status"] == "already"
-    assert "تم تفعيل اشتراكك" in notify_ctx.bot.send_message.call_args.kwargs["text"]
+    status, body = await app_logic.web_order_status("inv_1", None)
+    code1 = body["code"]
+    assert status == 200 and len(code1) == 9 and code1[4] == "-" and body["botLink"].endswith("code_" + code1.replace("-", ""))
+    assert (await app_logic.web_order_status("inv_1", None))[1]["code"] == code1  # نفس الكود دائماً
+    assert code1 in await app_logic.payment_callback_html("pay_1", "inv_1")  # صفحة الرجوع تعرض الكود
 
+    # --- تفعيل الكود في الخاص (حتى بأحرف صغيرة) ---
+    upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
+    upd.effective_message.text = code1.lower()
+    await bot_handlers.private_text(upd, make_ctx([], admins))
+    assert "تم تفعيل اشتراكك" in upd.effective_message.reply_text.call_args.args[0]
     sub = db.db().collection("subscriptions").document("inv_1").get().to_dict()
-    assert sub["status"] == "active" and sub["paymentId"] == "pay_1"
+    assert sub["status"] == "active" and sub["ownerUid"] == owner_uid and sub["paymentId"] == "pay_1"
+    assert sub["telegramUserId"] == MEMBER_TG and sub["source"] == "web"
+    assert sub["amount"] == 50.0 and sub["ownerShare"] == 45.0 and sub["commission"] == 5.0
     first_end = sub["endDate"]
     assert 89 <= (first_end - db.utcnow()).days <= 90
 
+    # الكود يُستخدم مرة واحدة فقط
+    upd = make_update(333, chat_type=ChatType.PRIVATE, chat_id=333)
+    upd.effective_message.text = code1
+    await bot_handlers.private_text(upd, make_ctx([], admins))
+    assert "مستخدم مسبقاً" in upd.effective_message.reply_text.call_args.args[0]
+    assert (await app_logic.web_order_status("inv_1", None))[1]["used"] is True
+
+    # كود غير صحيح + رسالة عادية في الخاص توجّه للموقع
+    upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
+    upd.effective_message.text = "ABCD-EFGH"
+    await bot_handlers.private_text(upd, make_ctx([], admins))
+    assert "غير صحيح" in upd.effective_message.reply_text.call_args.args[0]
+    upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
+    upd.effective_message.text = "السلام عليكم"
+    await bot_handlers.private_text(upd, make_ctx([], admins))
+    assert "subscribe.html" in str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
+
+    # المشترك يكتب في القروب بدون حذف
     db.clear_caches()
     upd = make_update(MEMBER_TG)
+    upd.effective_message.text = "مرحبا"
     await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
     upd.effective_message.delete.assert_not_awaited()
 
-    # --- التجديد يُضاف على نهاية الاشتراك الحالي (عبر صفحة الرجوع) ---
-    await choose("plan_6m")
-    invoices["inv_2"].update(status="paid", payments=[{"id": "pay_2", "status": "paid"}])
-    assert "تم الدفع بنجاح" in await app_logic.payment_callback_html("pay_2", "inv_2")
-    sub2 = db.db().collection("subscriptions").document("inv_2").get().to_dict()
+    # --- التجديد: الكود يُرسل داخل القروب، يُحذف ويُضاف للمدة الحالية ---
+    inv2, code2 = await paid_code("plan_6m")
+    upd = make_update(MEMBER_TG)
+    upd.effective_message.text = code2
+    ctx = make_ctx(members=admins)
+    await bot_handlers.guard_group_messages(upd, ctx)
+    upd.effective_message.delete.assert_awaited_once()
+    assert "تم تفعيل اشتراكك" in ctx.bot.send_message.call_args.kwargs["text"]
+    sub2 = db.db().collection("subscriptions").document(inv2).get().to_dict()
     assert abs((sub2["startDate"] - first_end).total_seconds()) < 2
     assert (sub2["endDate"] - first_end).days == 180
 
+    # --- كود قروب آخر لا يُفعَّل هنا ---
+    db.db().collection("groups").document("-100777").set(
+        {"ownerUid": other_uid, "title": "قروب آخر", "chatId": -100777, "active": True})
+    inv3, code3 = await paid_code("plan_3m")
+    upd = make_update(MEMBER_TG, chat_id=-100777)
+    upd.effective_message.text = code3
+    ctx = make_ctx(members=admins)
+    await bot_handlers.guard_group_messages(upd, ctx)
+    assert "خاص بمجموعة أخرى" in ctx.bot.send_message.call_args.kwargs["text"]
+    assert db.db().collection("redeemCodes").document(code3.replace("-", "")).get().to_dict()["used"] is False
+    db.db().collection("groups").document("-100777").update({"active": False})
+    db.clear_caches()
+
+    # --- كود بدون قروب (من صفحة الاشتراك مباشرة) يُفعَّل في قروب العضو ---
+    inv4, code4 = await paid_code("plan_3m", group=None)
+    assert db.db().collection("webOrders").document(inv4).get().to_dict()["groupId"] is None
+    upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
+    await bot_handlers.start_command(upd, make_ctx(["code_" + code4.replace("-", "")], admins))
+    assert "تم تفعيل اشتراكك" in upd.effective_message.reply_text.call_args.args[0]
+    assert db.db().collection("subscriptions").document(inv4).get().to_dict()["groupId"] == GROUP_ID
+
     # --- مبلغ لا يطابق ---
-    await choose("plan_6m")
-    invoices["inv_3"].update(status="paid", amount=100)
-    assert (await hook({"type": "invoice_paid", "data": {"id": "inv_3"}, "secret_token": "test-secret"}, None))[1]["status"] == "amount_mismatch"
+    status, body = await app_logic.web_checkout("plan_6m", str(GROUP_ID))
+    invoices[body["invoiceId"]].update(status="paid", amount=100)
+    assert (await app_logic.web_order_status(body["invoiceId"], None))[1]["status"] == "amount_mismatch"
 
     # --- config.js ---
     js = await app_logic.config_js({"firestore": "", "auth": ""})
@@ -273,9 +338,9 @@ async def test_full_flow(monkeypatch):
     for doc in db.db().collection("subscriptions").where("status", "==", "active").stream():
         doc.reference.update({"endDate": db.utcnow() - dt.timedelta(minutes=1)})
     ctx = make_ctx()
-    assert await bot_handlers.run_expiry(ctx.bot) == 2
+    assert await bot_handlers.run_expiry(ctx.bot) == 3
     statuses = {d.id: d.to_dict()["status"] for d in db.db().collection("subscriptions").stream()}
-    assert statuses["inv_1"] == "expired" and statuses["inv_2"] == "expired"
+    assert statuses["inv_1"] == "expired" and statuses["inv_2"] == "expired" and statuses["inv_4"] == "expired"
     upd = make_update(MEMBER_TG)
     await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
     upd.effective_message.delete.assert_awaited_once()

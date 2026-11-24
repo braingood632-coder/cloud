@@ -141,6 +141,8 @@ PLANS: dict[str, dict] = {
 }
 
 INVOICE_EXPIRY_MINUTES = 30          # صلاحية فاتورة ميسر
+REDEEM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # بدون 0/O/1/I لتفادي اللبس
+REDEEM_CODE_LENGTH = 8               # كود التفعيل الذي يظهر بعد الدفع في الموقع (يُستخدم مرة واحدة)
 LINK_CODE_TTL_MINUTES = 15           # صلاحية كود ربط القروب
 REMINDER_EVERY_MINUTES = 30          # رسالة التذكير داخل القروبات
 WARNING_MESSAGE_AUTO_DELETE_SECONDS = 20  # حذف تنبيه "يجب الاشتراك"

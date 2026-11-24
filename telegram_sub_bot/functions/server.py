@@ -16,6 +16,9 @@ server.py — تشغيل البوت كسيرفر ويب عادي (Render أو أ
   GET  /payment/callback      صفحة الرجوع بعد الدفع
   GET  /config.js             إعدادات الموقع (الموقع على Firebase Hosting يحوّل إليها)
   POST /api/claim-admin       تفعيل لوحة الأدمن
+  GET  /api/group?g=ID        اسم القروب لصفحة الاشتراك في الموقع
+  POST /api/checkout          إنشاء فاتورة ميسر من صفحة الاشتراك (الدفع في المتصفح)
+  GET  /api/order?invoice_id= حالة الدفع + كود التفعيل بعد الرجوع من ميسر
   GET  /api/setup-webhook     ضبط Webhook تليجرام يدوياً
   GET  /healthz               فحص الحالة
 """
@@ -130,7 +133,7 @@ def _cors(response: Response) -> Response:
     # الطلب يحمل توكن Firebase في الترويسة (لا كوكيز)، فالسماح لأي أصل آمن هنا
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
-    response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     response.headers["Access-Control-Max-Age"] = "3600"
     return response
 
@@ -189,6 +192,33 @@ async def claim_admin(req: Request) -> Response:
     return _cors(JSONResponse(body, status_code=status))
 
 
+async def web_group(req: Request) -> Response:
+    status, body = await app_logic.web_group_info(req.query_params.get("g"))
+    return _cors(JSONResponse(body, status_code=status))
+
+
+async def web_checkout(req: Request) -> Response:
+    if req.method == "OPTIONS":
+        return _cors(Response(status_code=204))
+    try:
+        payload = await req.json()
+    except Exception:
+        payload = None
+    if not isinstance(payload, dict):
+        return _cors(JSONResponse({"error": "invalid json"}, status_code=400))
+    try:
+        status, body = await app_logic.web_checkout(str(payload.get("plan") or ""), str(payload.get("g") or "") or None)
+    except Exception:
+        logger.exception("فشل إنشاء فاتورة من الموقع")
+        status, body = 502, {"error": "checkout failed"}
+    return _cors(JSONResponse(body, status_code=status))
+
+
+async def web_order(req: Request) -> Response:
+    status, body = await app_logic.web_order_status(req.query_params.get("invoice_id"), req.query_params.get("id"))
+    return _cors(JSONResponse(body, status_code=status, headers={"Cache-Control": "no-store"}))
+
+
 async def setup_webhook(_req: Request) -> Response:
     try:
         return JSONResponse(await app_logic.ensure_webhook())
@@ -207,6 +237,9 @@ app = Starlette(
         Route("/config.js", web_config),
         Route("/api/claim-admin", claim_admin, methods=["POST", "OPTIONS"]),
         Route("/api/setup-webhook", setup_webhook),
+        Route("/api/group", web_group, methods=["GET"]),
+        Route("/api/checkout", web_checkout, methods=["POST", "OPTIONS"]),
+        Route("/api/order", web_order, methods=["GET"]),
     ],
     lifespan=lifespan,
 )

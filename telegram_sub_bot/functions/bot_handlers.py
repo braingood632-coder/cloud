@@ -4,8 +4,8 @@ bot_handlers.py
 منطق بوت Cloud (بوت واحد مركزي يخدم كل القروبات المربوطة):
 
 1) /link CODE داخل القروب: يربط القروب بحساب صاحبه في الموقع
-2) /start sub_<chatId> في الخاص: يعرض باقات الاشتراك لهذا القروب
-3) اختيار باقة: فاتورة ميسر تُفتح داخل Telegram WebApp
+2) زر «اشترك» يفتح صفحة الاشتراك في الموقع (المتصفح) — الدفع يتم في الموقع وليس داخل تليجرام
+3) بعد الدفع يحصل العضو على كود تفعيل (مرة واحدة) يرسله للبوت أو داخل القروب فيتفعّل اشتراكه
 4) حماية كل قروب مربوط: حذف رسائل غير المشتركين + تنبيه بزر الاشتراك
 5) تذكير دوري داخل كل قروب مربوط بالباقات
 6) مهام دورية: انتهاء الاشتراكات، تحديث عدد الأعضاء، صلاحيات الأدمن
@@ -26,7 +26,6 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Update,
-    WebAppInfo,
 )
 from telegram.constants import ChatMemberStatus, ChatType, ParseMode
 from telegram.error import TelegramError
@@ -41,11 +40,8 @@ from telegram.ext import (
 )
 
 import firebase_db as db
-import moyasar_client
 from config import (
-    INVOICE_EXPIRY_MINUTES,
     LINK_CODE_TTL_MINUTES,
-    PLANS,
     WARNING_MESSAGE_AUTO_DELETE_SECONDS,
     settings,
 )
@@ -54,23 +50,45 @@ logger = logging.getLogger(__name__)
 
 ADMIN_STATUSES = (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
 
+SITE_PAY_TEXT = (
+    "💳 الاشتراك والدفع يتم من خلال موقعنا الإلكتروني.\n\n"
+    "1) اضغط «اشترك» ليفتح لك موقع الاشتراك في المتصفح.\n"
+    "2) اختر الباقة وادفع المبلغ.\n"
+    "3) بعد الدفع يظهر لك كود تفعيل، أرسله هنا أو داخل القروب ويتفعّل اشتراكك فوراً."
+)
 
-def _subscribe_url(bot_username: str, chat_id: int) -> str:
-    return f"https://t.me/{bot_username}?start=sub_{chat_id}"
+
+def _subscribe_url(bot_username: str, chat_id: Optional[int]) -> str:
+    """رابط صفحة الاشتراك في الموقع (يُفتح في المتصفح وليس داخل تليجرام)."""
+    base = f"{settings.PUBLIC_BASE_URL}/subscribe.html"
+    return f"{base}?g={chat_id}" if chat_id else base
 
 
-def _subscribe_keyboard(bot_username: str, chat_id: int) -> InlineKeyboardMarkup:
+def _subscribe_keyboard(bot_username: str, chat_id: Optional[int]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("✅ اشترك ✅", url=_subscribe_url(bot_username, chat_id))]]
     )
 
 
-def _plans_keyboard(chat_id: int) -> InlineKeyboardMarkup:
-    rows = []
-    for key, plan in PLANS.items():
-        label = f"{plan['name']} -> {plan['price']:.0f} ريال -> {plan['days']} يوم"
-        rows.append([InlineKeyboardButton(label, callback_data=f"plan|{chat_id}|{key}")])
-    return InlineKeyboardMarkup(rows)
+def _redeem_reply(status: str, data: Optional[dict]) -> str:
+    if status == db.REDEEM_OK:
+        return (
+            "✅ تم تفعيل اشتراكك بنجاح!\n\n"
+            f"👥 المجموعة: {data.get('groupTitle', '')}\n"
+            f"📦 الباقة: {data.get('planName', '')}\n"
+            f"📅 صالح حتى: {_fmt_date(data.get('endDate'))}\n\n"
+            "يمكنك الآن الكتابة في المجموعة بكل حرية 🎉"
+        )
+    if status == db.REDEEM_USED:
+        return "⛔ هذا الكود مستخدم مسبقاً. كل كود يُستخدم مرة واحدة فقط."
+    if status == db.REDEEM_WRONG_GROUP:
+        title = (data or {}).get("groupTitle") or ""
+        return "⚠️ هذا الكود خاص بمجموعة أخرى" + (f": «{title}»." if title else ".") + " أرسله داخل تلك المجموعة."
+    return "❌ الكود غير صحيح. تأكد منه وأعد إرساله كما ظهر لك في الموقع بعد الدفع."
+
+
+def _tg_user(user) -> dict:
+    return {"id": user.id, "name": user.full_name, "username": user.username}
 
 
 def _fmt_date(value) -> str:
@@ -149,8 +167,21 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 # ---------------------------------------------------------------------------
-# 2) /start في الخاص
+# 2) /start في الخاص -> رابط صفحة الاشتراك في الموقع، أو تفعيل كود
 # ---------------------------------------------------------------------------
+
+def _site_message(group_id: Optional[int], current_end=None) -> dict:
+    current = (
+        f"✅ اشتراكك الحالي ساري حتى {_fmt_date(current_end)}، ويمكنك التجديد مسبقاً وتُضاف المدة الجديدة إليه.\n\n"
+        if current_end else ""
+    )
+    return {
+        "text": current + SITE_PAY_TEXT,
+        "reply_markup": InlineKeyboardMarkup(
+            [[InlineKeyboardButton("✅ اشترك ✅", url=_subscribe_url("", group_id))]]
+        ),
+    }
+
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat = update.effective_chat
@@ -165,6 +196,12 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     user_id = update.effective_user.id
     arg = context.args[0] if context.args else ""
+
+    # رابط «فعّل اشتراكك» من صفحة نجاح الدفع: /start code_XXXXXXXX
+    if arg.startswith("code_"):
+        await _redeem_in_private(update, context, arg[5:])
+        return
+
     if arg.startswith("sub_"):
         try:
             group_id = int(arg[4:])
@@ -174,19 +211,21 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if group is None:
             await message.reply_text("عذراً، هذه المجموعة غير مفعّلة حالياً على البوت.")
             return
-        await message.reply_text(**await _plans_message(group_id, group, user_id))
+        end = await db.get_active_end_date(user_id, group_id)
+        await message.reply_text(**_site_message(group_id, end))
         return
 
     # /start بدون رابط: نبحث عن المجموعات المربوطة التي هو عضو فيها
     groups = await _user_groups(context, user_id)
     if len(groups) == 1:
-        group_id, group = groups[0]
-        await message.reply_text(**await _plans_message(group_id, group, user_id))
+        group_id, _group = groups[0]
+        end = await db.get_active_end_date(user_id, group_id)
+        await message.reply_text(**_site_message(group_id, end))
         return
     if len(groups) > 1:
-        rows = [[InlineKeyboardButton(f"👥 {g.get('title', '')}", callback_data=f"grp|{gid}")] for gid, g in groups]
+        rows = [[InlineKeyboardButton(f"👥 {g.get('title', '')}", url=_subscribe_url("", gid))] for gid, g in groups]
         await message.reply_text(
-            f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🎉\n\nاختر المجموعة التي ترغب في الاشتراك بها 👇",
+            f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🎉\n\n{SITE_PAY_TEXT}\n\nاختر المجموعة التي ترغب في الاشتراك بها 👇",
             reply_markup=InlineKeyboardMarkup(rows),
         )
         return
@@ -195,23 +234,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🤖☁️\n\n"
         "🔒 الكتابة في المجموعة متاحة للمشتركين فقط.\n\n"
         "✅ للاشتراك: اضغط زر «اشترك» الموجود داخل المجموعة التي ترغب في الكتابة بها، "
-        "واختر الباقة المناسبة، وبعد الدفع تقدر تكتب بحرية بدون حذف لرسائلك.\n\n"
+        "وسيفتح لك موقع الاشتراك لاختيار الباقة والدفع، وبعدها أرسل كود التفعيل هنا.\n\n"
         "📋 لعرض اشتراكاتك: /mysubs\n"
         f"🛟 الدعم الفني: @{settings.SUPPORT_USERNAME}"
     )
-
-
-async def _plans_message(group_id: int, group: dict, user_id: int) -> dict:
-    """رسالة عرض الباقات (نفس أسلوب: 📦 قم باختيار إحدى باقات الاشتراك التالية)."""
-    end = await db.get_active_end_date(user_id, group_id)
-    current = (
-        f"✅ اشتراكك الحالي ساري حتى {_fmt_date(end)}، ويمكنك التجديد مسبقاً وتُضاف المدة الجديدة إليه.\n\n"
-        if end else ""
-    )
-    return {
-        "text": f"{current}📦 قم باختيار إحدى باقات الاشتراك التالية 📦",
-        "reply_markup": _plans_keyboard(group_id),
-    }
 
 
 async def _user_groups(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> list[tuple[int, dict]]:
@@ -225,20 +251,6 @@ async def _user_groups(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> list
         if member.status in (ChatMemberStatus.MEMBER, ChatMemberStatus.RESTRICTED, *ADMIN_STATUSES):
             found.append((gid, group))
     return found
-
-
-async def choose_group_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query = update.callback_query
-    await query.answer()
-    try:
-        group_id = int(query.data.split("|", 1)[1])
-    except ValueError:
-        return
-    group = await db.get_linked_group(group_id)
-    if group is None:
-        await query.edit_message_text("عذراً، هذه المجموعة غير مفعّلة حالياً على البوت.")
-        return
-    await query.edit_message_text(**await _plans_message(group_id, group, query.from_user.id))
 
 
 async def mysubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -255,60 +267,64 @@ async def mysubs_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # ---------------------------------------------------------------------------
-# 3) اختيار باقة -> فاتورة ميسر
+# 3) تفعيل كود الدفع (من الموقع) — في الخاص أو داخل القروب
 # ---------------------------------------------------------------------------
 
-async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _redeem_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, code_text: str) -> None:
+    message = update.effective_message
+    user = update.effective_user
+    status, data = await db.redeem_code(code_text, _tg_user(user))
+    if status == db.REDEEM_NO_GROUP:
+        # الكود غير مرتبط بقروب: نختار القروب الذي هو عضو فيه
+        groups = await _user_groups(context, user.id)
+        if len(groups) == 1:
+            status, data = await db.redeem_code(code_text, _tg_user(user), groups[0][0])
+        elif len(groups) > 1:
+            code = db.normalize_redeem_code(code_text)
+            rows = [[InlineKeyboardButton(f"👥 {g.get('title', '')}", callback_data=f"rdm|{code}|{gid}")] for gid, g in groups]
+            await message.reply_text("اختر المجموعة التي تريد تفعيل اشتراكك فيها 👇", reply_markup=InlineKeyboardMarkup(rows))
+            return
+        else:
+            await message.reply_text(
+                "لم أجدك عضواً في أي مجموعة مفعّلة على البوت.\nأرسل الكود داخل المجموعة التي تريد الاشتراك بها وسيتفعّل اشتراكك فوراً."
+            )
+            return
+    await message.reply_text(_redeem_reply(status, data))
+
+
+async def redeem_group_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
-
     try:
-        _, group_id_str, plan_key = query.data.split("|", 2)
-        group_id = int(group_id_str)
+        _, code, gid = query.data.split("|", 2)
+        group_id = int(gid)
     except ValueError:
-        await query.edit_message_text("طلب غير صالح، أعد المحاولة من زر الاشتراك في القروب.")
         return
+    status, data = await db.redeem_code(code, _tg_user(query.from_user), group_id)
+    await query.edit_message_text(_redeem_reply(status, data))
 
-    plan = PLANS.get(plan_key)
-    group = await db.get_linked_group(group_id)
-    if plan is None or group is None:
-        await query.edit_message_text("عذراً، هذه الباقة أو هذا القروب لم يعد متاحاً.")
+
+async def private_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """أي نص في الخاص: لو كان كود تفعيل نفعّله، وإلا نوضّح طريقة الاشتراك."""
+    message = update.effective_message
+    if message is None or not message.text:
         return
+    if db.looks_like_redeem_code(message.text):
+        await _redeem_in_private(update, context, message.text)
+        return
+    await message.reply_text(**_site_message(None))
 
-    user = query.from_user
+
+async def legacy_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """أزرار الباقات القديمة داخل تليجرام: الدفع الآن من الموقع فقط."""
+    query = update.callback_query
+    await query.answer()
+    group_id = None
     try:
-        invoice = await moyasar_client.create_invoice(
-            amount_sar=plan["price"],
-            description=f"اشتراك {plan['name']} - {group.get('title', '')}",
-            telegram_user_id=user.id,
-            group_id=group_id,
-            plan_key=plan_key,
-        )
-    except Exception:
-        logger.exception("فشل إنشاء فاتورة ميسر للمستخدم %s", user.id)
-        await query.edit_message_text("حدث خطأ أثناء إنشاء فاتورة الدفع، حاول لاحقاً 🙏")
-        return
-
-    await db.create_pending_subscription(
-        invoice_id=invoice["id"],
-        telegram_user={"id": user.id, "name": user.full_name, "username": user.username},
-        group=group,
-        group_id=group_id,
-        plan_key=plan_key,
-    )
-
-    hosted_url = invoice.get("url") or invoice.get("hosted_url") or invoice.get("hosted_page_url")
-    if not hosted_url:
-        logger.error("لم يُرجع ميسر رابط فاتورة صالح: %s", invoice)
-        await query.edit_message_text("تعذر الحصول على رابط الدفع، تواصل مع الدعم.")
-        return
-
-    await query.edit_message_text(
-        text=f"اضغط للاشتراك. تنتهي العملية خلال {INVOICE_EXPIRY_MINUTES} دقيقة",
-        reply_markup=InlineKeyboardMarkup(
-            [[InlineKeyboardButton("✅ اشترك ✅", web_app=WebAppInfo(url=hosted_url))]]
-        ),
-    )
+        group_id = int(query.data.split("|")[1])
+    except (ValueError, IndexError):
+        pass
+    await query.edit_message_text(**_site_message(group_id))
 
 
 # ---------------------------------------------------------------------------
@@ -371,6 +387,21 @@ async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYP
     group = await db.get_linked_group(chat.id)
     if group is None:
         return  # القروب غير مربوط: البوت لا يتدخل
+
+    # كود تفعيل من الموقع أُرسل داخل القروب: نفعّله ونحذف رسالته حتى لا يظهر الكود
+    if message.text and db.looks_like_redeem_code(message.text):
+        status, data = await db.redeem_code(message.text, _tg_user(user), chat.id)
+        try:
+            await message.delete()
+        except TelegramError:
+            pass
+        reply = await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"{user.mention_html()}\n" + html.escape(_redeem_reply(status, data)),
+            parse_mode=ParseMode.HTML,
+        )
+        await schedule_warning_delete(reply.chat_id, reply.message_id)
+        return
 
     if await _is_exempt(update, context):
         return
@@ -502,10 +533,14 @@ def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("mysubs", mysubs_command))
     application.add_handler(CommandHandler("link", link_command))
-    application.add_handler(CallbackQueryHandler(choose_plan_callback, pattern=r"^plan\|"))
-    application.add_handler(CallbackQueryHandler(choose_group_callback, pattern=r"^grp\|"))
+    application.add_handler(CallbackQueryHandler(redeem_group_callback, pattern=r"^rdm\|"))
+    # أزرار قديمة (الباقات داخل تليجرام): تُحوَّل الآن لصفحة الاشتراك في الموقع
+    application.add_handler(CallbackQueryHandler(legacy_plan_callback, pattern=r"^(plan|grp)\|"))
     application.add_handler(ChatMemberHandler(my_chat_member_update, ChatMemberHandler.MY_CHAT_MEMBER))
     application.add_handler(MessageHandler(filters.StatusUpdate.MIGRATE, migrate_handler))
+    application.add_handler(
+        MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND, private_text)
+    )
     application.add_handler(
         MessageHandler(filters.ChatType.GROUPS & ~filters.StatusUpdate.ALL, guard_group_messages)
     )

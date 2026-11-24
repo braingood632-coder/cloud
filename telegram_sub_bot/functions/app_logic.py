@@ -143,6 +143,111 @@ async def verify_and_activate(invoice_id: str) -> str:
     return status
 
 
+# ---------------------------------------------------------------------------
+# الاشتراك من الموقع (الدفع في المتصفح بدل تليجرام)
+# ---------------------------------------------------------------------------
+
+def subscribe_page_url(group_id: Optional[int] = None) -> str:
+    base = f"{settings.PUBLIC_BASE_URL}/subscribe.html"
+    return f"{base}?g={group_id}" if group_id else base
+
+
+async def web_group_info(group_id_raw: Optional[str]) -> tuple[int, dict]:
+    db.init_firebase()
+    try:
+        group_id = int(group_id_raw or "")
+    except ValueError:
+        return 400, {"error": "bad group"}
+    group = await db.get_linked_group(group_id)
+    if group is None:
+        return 404, {"error": "not found"}
+    return 200, {"id": group_id, "title": group.get("title", "")}
+
+
+async def web_checkout(plan_key: str, group_id_raw: Optional[str]) -> tuple[int, dict]:
+    """ينشئ فاتورة ميسر من صفحة الاشتراك في الموقع ويرجع رابط الدفع."""
+    db.init_firebase()
+    plan = PLANS.get(plan_key or "")
+    if plan is None:
+        return 400, {"error": "bad plan"}
+    group_id, group = None, None
+    if group_id_raw:
+        try:
+            group_id = int(group_id_raw)
+        except ValueError:
+            return 400, {"error": "bad group"}
+        group = await db.get_linked_group(group_id)
+        if group is None:
+            return 404, {"error": "group not found"}
+
+    title = (group or {}).get("title", "")
+    description = f"اشتراك {plan['name']}" + (f" - {title}" if title else "")
+    page = subscribe_page_url(group_id)
+    sep = "&" if "?" in page else "?"
+    invoice = await moyasar_client.create_invoice(
+        amount_sar=plan["price"],
+        description=description,
+        metadata={"source": "web", "plan_key": plan_key, "group_id": group_id or ""},
+        success_url=f"{page}{sep}paid=1",
+        back_url=page,
+    )
+    url = invoice.get("url") or invoice.get("hosted_url") or invoice.get("hosted_page_url")
+    if not url:
+        logger.error("لم يُرجع ميسر رابط فاتورة صالح: %s", invoice)
+        return 502, {"error": "no payment url"}
+    await db.create_web_order(invoice["id"], plan_key, group_id, group)
+    return 200, {"invoiceId": invoice["id"], "url": url}
+
+
+async def verify_web_order(invoice_id: str) -> tuple[str, Optional[dict]]:
+    """يتحقق من ميسر مباشرة أن الفاتورة مدفوعة بالمبلغ الصحيح، ثم يولّد كود التفعيل."""
+    db.init_firebase()
+    order = await db.get_web_order(invoice_id)
+    if order is None:
+        return "not_found", None
+    if order.get("code"):
+        return "ok", order
+
+    invoice = await moyasar_client.fetch_invoice(invoice_id)
+    if invoice.get("status") != "paid":
+        return "not_paid", order
+    expected = int(round(float(order["amount"]) * 100))
+    if int(invoice.get("amount", 0)) != expected or invoice.get("currency", "SAR") != "SAR":
+        logger.error("مبلغ الفاتورة %s لا يطابق المتوقع (%s)", invoice_id, expected)
+        return "amount_mismatch", order
+    payment = moyasar_client.paid_payment(invoice) or {}
+    return "ok", await db.mark_web_order_paid(invoice_id, payment.get("id"))
+
+
+async def web_order_status(invoice_id: Optional[str], payment_id: Optional[str]) -> tuple[int, dict]:
+    """تستدعيها صفحة الاشتراك بعد الرجوع من ميسر لعرض كود التفعيل."""
+    try:
+        if not invoice_id and payment_id:
+            payment = await moyasar_client.fetch_payment(payment_id)
+            invoice_id = payment.get("invoice_id")
+        if not invoice_id:
+            return 400, {"status": "bad_request"}
+        status, order = await verify_web_order(invoice_id)
+    except moyasar_client.MoyasarError:
+        logger.exception("فشل التحقق من طلب الموقع %s", invoice_id)
+        return 502, {"status": "error"}
+    if status == "not_found":
+        return 404, {"status": status}
+    body = {"status": status}
+    if status == "ok" and order:
+        username = await bot_username()
+        body.update(
+            code=db.format_redeem_code(order["code"]),
+            used=order.get("status") == db.ORDER_REDEEMED,
+            planName=order.get("planName", ""),
+            planDays=order.get("planDays"),
+            groupTitle=order.get("groupTitle", ""),
+            botUsername=username,
+            botLink=f"https://t.me/{username}?start=code_{order['code']}" if username else "",
+        )
+    return 200, body
+
+
 async def handle_moyasar_webhook(payload: dict, header_token: Optional[str]) -> tuple[int, dict]:
     token = header_token or payload.get("secret_token") or ""
     if not settings.MOYASAR_WEBHOOK_SECRET or not hmac.compare_digest(str(token), settings.MOYASAR_WEBHOOK_SECRET):
@@ -158,6 +263,9 @@ async def handle_moyasar_webhook(payload: dict, header_token: Optional[str]) -> 
 
     try:
         status = await verify_and_activate(invoice_id)
+        if status == "not_found":
+            # طلب من صفحة الاشتراك في الموقع: نجهّز كود التفعيل حتى لو أغلق العضو الصفحة
+            status, _ = await verify_web_order(invoice_id)
     except moyasar_client.MoyasarError:
         logger.exception("فشل التحقق من الفاتورة %s", invoice_id)
         return 502, {"error": "verification failed"}  # ميسر يعيد المحاولة
@@ -173,24 +281,42 @@ _RESULT_PAGE = """<!doctype html><html lang="ar" dir="rtl"><head><meta charset="
 
 async def payment_callback_html(payment_id: Optional[str], invoice_id: Optional[str]) -> str:
     result = "not_found"
+    web_order = None
     try:
         if not invoice_id and payment_id:
             payment = await moyasar_client.fetch_payment(payment_id)
             invoice_id = payment.get("invoice_id")
         if invoice_id:
             result = await verify_and_activate(invoice_id)
+            if result == "not_found":
+                result, web_order = await verify_web_order(invoice_id)
+                result = "web_" + result
     except Exception:
         logger.exception("فشل التحقق في صفحة الرجوع")
         result = "error"
 
     username = await bot_username()
+    if result == "web_ok" and web_order:
+        code = web_order["code"]
+        link = f"https://t.me/{username}?start=code_{code}" if username else ""
+        btn = f'<a class="btn btn-primary" href="{link}">فعّل اشتراكك في البوت</a>' if link else ""
+        return _RESULT_PAGE.format(
+            site=settings.PUBLIC_BASE_URL, icon="✅", title="تم الدفع بنجاح",
+            text=("كود التفعيل الخاص بك (يُستخدم مرة واحدة):<br><b class=\"ltr\" style=\"font-size:1.8rem;letter-spacing:3px\">"
+                  f"{db.format_redeem_code(code)}</b><br>أرسل الكود للبوت أو داخل القروب ليتفعّل اشتراكك فوراً."),
+            button=btn,
+        )
+    if result in ("web_not_paid",):
+        result = "not_paid"
+    button = f'<a class="btn btn-primary" href="https://t.me/{username}">العودة إلى البوت</a>' if username else ""
     button = f'<a class="btn btn-primary" href="https://t.me/{username}">العودة إلى البوت</a>' if username else ""
     if result in ("ok", "already"):
         return _RESULT_PAGE.format(site=settings.PUBLIC_BASE_URL, icon="✅", title="تم الدفع بنجاح",
                                    text="تم تفعيل اشتراكك، ويمكنك الآن النشر في المجموعة. وصلتك رسالة تأكيد من البوت.", button=button)
     if result == "not_paid":
         return _RESULT_PAGE.format(site=settings.PUBLIC_BASE_URL, icon="⚠️", title="لم تكتمل عملية الدفع",
-                                   text="لم يتم خصم أي مبلغ. يمكنك المحاولة مرة أخرى من البوت.", button=button)
+                                   text="لم يتم خصم أي مبلغ. يمكنك المحاولة مرة أخرى من صفحة الاشتراك في الموقع.",
+                                   button=f'<a class="btn btn-primary" href="{subscribe_page_url()}">صفحة الاشتراك</a>')
     return _RESULT_PAGE.format(site=settings.PUBLIC_BASE_URL, icon="⏳", title="جارٍ التحقق من الدفع",
                                text="إذا تم الخصم فسيُفعَّل اشتراكك خلال دقائق وتصلك رسالة من البوت. لأي استفسار تواصل مع الدعم الفني @"
                                + settings.SUPPORT_USERNAME, button=button)
