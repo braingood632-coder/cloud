@@ -100,17 +100,16 @@ async def link_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
+    # قبل الربط البوت صامت تماماً في القروب: لا يرد على شيء إلا /link مع كود من مشرف
     if not context.args:
-        await message.reply_text("اكتب الأمر مع كود الربط من لوحة التحكم، مثال:\n/link AB12CD34")
         return
 
-    # فقط مشرفو القروب يستطيعون ربطه
+    # فقط مشرفو القروب يستطيعون ربطه (غيرهم: تجاهل بصمت)
     try:
         member = await context.bot.get_chat_member(chat.id, user.id)
     except TelegramError:
         member = None
     if member is None or member.status not in ADMIN_STATUSES:
-        await message.reply_text("⛔ ربط القروب متاح لمشرفي القروب فقط.")
         return
 
     # البوت يجب أن يكون مشرفاً ويملك صلاحية حذف الرسائل

@@ -336,6 +336,29 @@ def admin_users_sync(id_token: str, payload: dict) -> tuple[int, dict]:
         return 403, {"error": "admin only"}
 
     action = str(payload.get("action") or "")
+
+    if action == "email":
+        # تغيير إيميل الدخول (أو اسم المستخدم) لحساب موجود
+        uid = str(payload.get("uid") or "")
+        ref = db.db().collection("owners").document(uid) if uid else None
+        if ref is None or not ref.get().exists:
+            return 404, {"error": "not_found"}
+        login = str(payload.get("login") or "").strip().lower()
+        if "@" in login:
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", login):
+                return 400, {"error": "bad_email"}
+            new_email, update = login, {"email": login, "username": db.firestore.DELETE_FIELD}
+        elif _USERNAME_RE.match(login):
+            new_email, update = f"{login}@{LOGIN_EMAIL_DOMAIN}", {"email": f"{login}@{LOGIN_EMAIL_DOMAIN}", "username": login}
+        else:
+            return 400, {"error": "bad_username"}
+        try:
+            fb_auth.update_user(uid, email=new_email, email_verified=True)
+        except fb_auth.EmailAlreadyExistsError:
+            return 409, {"error": "username_taken"}
+        ref.update(update)
+        return 200, {"status": "ok", "email": new_email}
+
     password = str(payload.get("password") or "")
     if len(password) < 6:
         return 400, {"error": "weak_password"}

@@ -29,7 +29,7 @@ services:
       - key: PUBLIC_BASE_URL               # رابط الموقع (غيّره لدومينك إذا ربطته)
         value: https://cloudtg.fyi
       - key: ADMIN_EMAILS
-        value: braingood632@gmail.com
+        value: radhadh.alghaim@gmail.com
       - key: OWNER_TELEGRAM_ID
         value: "6346652212"
       - key: SUPPORT_USERNAME

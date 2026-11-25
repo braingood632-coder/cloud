@@ -132,7 +132,11 @@ async def test_full_flow(monkeypatch):
     create_code("AAAA2222", owner_uid)
     upd = make_update(MEMBER_TG)
     await bot_handlers.link_command(upd, make_ctx(["AAAA2222"], admins))
-    assert "لمشرفي القروب فقط" in upd.effective_message.reply_text.call_args.args[0]
+    upd.effective_message.reply_text.assert_not_awaited()  # قبل الربط: صمت تام
+    # /link بدون كود: صمت أيضاً
+    upd = make_update(ADMIN_TG)
+    await bot_handlers.link_command(upd, make_ctx([], admins))
+    upd.effective_message.reply_text.assert_not_awaited()
 
     # --- البوت بدون صلاحية حذف ---
     upd = make_update(ADMIN_TG)
@@ -424,4 +428,13 @@ async def test_admin_creates_accounts():
     assert _emulator_sign_in(f"ahmed_1@{LOGIN_EMAIL_DOMAIN}", "newpass9")
     assert not _emulator_sign_in(f"ahmed_1@{LOGIN_EMAIL_DOMAIN}", "pass123")
     assert app_logic.admin_users_sync(admin_token, {"action": "password", "uid": "nope", "password": "newpass9"})[0] == 404
+    # تغيير الإيميل/اسم المستخدم
+    assert app_logic.admin_users_sync(admin_token, {"action": "email", "uid": body["uid"], "login": "bad email"})[1]["error"] == "bad_username"
+    status, r = app_logic.admin_users_sync(admin_token, {"action": "email", "uid": body["uid"], "login": "New.Mail@Example.com"})
+    assert status == 200 and r["email"] == "new.mail@example.com"
+    assert _emulator_sign_in("new.mail@example.com", "newpass9")
+    owner = db.db().collection("owners").document(body["uid"]).get().to_dict()
+    assert owner["email"] == "new.mail@example.com" and "username" not in owner
+    assert app_logic.admin_users_sync(admin_token, {"action": "email", "uid": body["uid"], "login": "normal@example.com"})[0] == 409
+    assert app_logic.admin_users_sync(normal_token, {"action": "email", "uid": body["uid"], "login": "x@y.com"})[0] == 403
     assert normal_uid

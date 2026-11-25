@@ -98,6 +98,7 @@ const USER_ERRORS = {
   username_taken: "اسم المستخدم مستخدم مسبقاً، اختر اسماً آخر.",
   admin_only: "هذه العملية للأدمن فقط.",
   not_found: "الحساب غير موجود.",
+  bad_email: "الإيميل غير صحيح.",
 };
 
 async function adminUsers(payload) {
@@ -137,6 +138,16 @@ function accounts() {
           <div class="field"><label for="pwNew">كلمة المرور الجديدة</label><input id="pwNew" class="ltr" minlength="6" required /></div>
           <button class="btn btn-outline btn-block" type="submit">حفظ كلمة المرور</button>
         </form>
+        <hr style="margin:18px 0;opacity:.2" />
+        <div class="panel-head"><h2>✉️ تغيير الإيميل / اسم المستخدم</h2></div>
+        <form id="emForm" autocomplete="off">
+          <div class="field"><label for="emUser">الحساب</label><select id="emUser" required>
+            <option value="">— اختر الحساب —</option>
+            ${list.map((o) => `<option value="${esc(o.id)}">${esc(o.name)} — ${esc(loginName(o))}</option>`).join("")}
+          </select></div>
+          <div class="field"><label for="emNew">الإيميل أو اسم المستخدم الجديد</label><input id="emNew" class="ltr" required /></div>
+          <button class="btn btn-outline btn-block" type="submit">حفظ</button>
+        </form>
       </div>
     </div>
     <div class="panel"><div class="panel-head"><h2>كل الحسابات (${list.length})</h2></div><div class="table-wrap"><table>
@@ -161,6 +172,19 @@ function accounts() {
     } catch (err) {
       $("#nuResult").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
     }
+    btn.disabled = false;
+  });
+  $("#emForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      const self = $("#emUser").value === state.user.uid;
+      const r = await adminUsers({ action: "email", uid: $("#emUser").value, login: $("#emNew").value.trim() });
+      e.target.reset();
+      toast(`تم التغيير ✅ الدخول الآن بـ ${r.email}`);
+      if (self) setTimeout(() => signOut(auth).then(() => location.replace("/auth.html")), 1500);
+    } catch (err) { toast(err.message); }
     btn.disabled = false;
   });
   $("#pwForm").addEventListener("submit", async (e) => {
