@@ -243,7 +243,7 @@ function link() {
       </form>
       ${pendingLink ? `<div class="link-box">
         <div class="panel-head"><h2>كود الربط لحساب «${esc(owner?.name || "")}»</h2><span class="muted" id="countdown"></span></div>
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="code">${pendingLink.code}</span>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="code ltr" id="linkCmd" dir="ltr" title="اضغط للنسخ" style="user-select:all;cursor:pointer">/link ${pendingLink.code}</span>
         <button class="btn btn-outline btn-sm" id="copyCode" type="button">نسخ الأمر</button></div>
         <ol class="link-steps">
           <li><b>الطريقة السريعة:</b> اضغط الزر واختر القروب — سيُضاف البوت مشرفاً ويتم الربط تلقائياً.<br/>
@@ -268,7 +268,9 @@ function link() {
       } catch (err) { if (i === 2) onErr(err); }
     }
   });
-  $("#copyCode")?.addEventListener("click", () => navigator.clipboard?.writeText(`/link ${pendingLink.code}`).then(() => toast("تم نسخ الأمر")));
+  const copyCmd = () => navigator.clipboard?.writeText(`/link ${pendingLink.code}`).then(() => toast("تم نسخ الأمر: /link " + pendingLink.code));
+  $("#copyCode")?.addEventListener("click", copyCmd);
+  $("#linkCmd")?.addEventListener("click", copyCmd);
 
   clearInterval(linkTimer);
   if (pendingLink) {
