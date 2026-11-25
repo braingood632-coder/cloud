@@ -250,7 +250,15 @@ async def web_order_status(invoice_id: Optional[str], payment_id: Optional[str])
 
 async def handle_moyasar_webhook(payload: dict, header_token: Optional[str]) -> tuple[int, dict]:
     token = header_token or payload.get("secret_token") or ""
-    if not settings.MOYASAR_WEBHOOK_SECRET or not hmac.compare_digest(str(token), settings.MOYASAR_WEBHOOK_SECRET):
+    token_ok = bool(settings.MOYASAR_WEBHOOK_SECRET) and hmac.compare_digest(str(token), settings.MOYASAR_WEBHOOK_SECRET)
+
+    # تأكيد الـ Webhook من لوحة ميسر: يرسل رمزاً من 6 أرقام يجب إدخاله في اللوحة، فنطبعه في السجلات
+    if str(payload.get("type", "")) == "webhook_verification":
+        code = (payload.get("data") or {}).get("verification_code")
+        logger.warning("رمز تأكيد Webhook ميسر: %s (السر %s)", code, "مطابق" if token_ok else "غير مطابق")
+        return 200, {"status": "verification_received"}
+
+    if not token_ok:
         logger.warning("محاولة Webhook ميسر بتوكن غير صحيح")
         return 401, {"error": "invalid token"}
 
