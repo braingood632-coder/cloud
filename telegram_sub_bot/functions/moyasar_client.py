@@ -30,14 +30,11 @@ def _client() -> httpx.AsyncClient:
 async def create_invoice(
     amount_sar: float,
     description: str,
-    metadata: dict,
-    success_url: str | None = None,
-    back_url: str | None = None,
+    telegram_user_id: int,
+    group_id: int,
+    plan_key: str,
 ) -> dict:
-    """
-    ينشئ فاتورة تنتهي صلاحيتها بعد INVOICE_EXPIRY_MINUTES دقيقة.
-    الدفع يتم في المتصفح (صفحة الاشتراك في الموقع -> صفحة ميسر) وليس داخل تليجرام.
-    """
+    """ينشئ فاتورة تنتهي صلاحيتها بعد INVOICE_EXPIRY_MINUTES دقيقة."""
     amount_halalas = int(round(amount_sar * 100))  # ميسر يتعامل بالهللة
     expires_at = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=INVOICE_EXPIRY_MINUTES)
 
@@ -47,12 +44,12 @@ async def create_invoice(
         "description": description,
         "callback_url": f"{settings.API_BASE_URL}/payment/callback",
         "expired_at": expires_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "metadata": {k: str(v) for k, v in metadata.items()},
+        "metadata": {
+            "telegram_user_id": str(telegram_user_id),
+            "group_id": str(group_id),
+            "plan_key": plan_key,
+        },
     }
-    if success_url:
-        payload["success_url"] = success_url
-    if back_url:
-        payload["back_url"] = back_url
 
     async with _client() as client:
         response = await client.post(f"{settings.MOYASAR_BASE_URL}/invoices", json=payload)
