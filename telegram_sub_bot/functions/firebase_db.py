@@ -30,6 +30,7 @@ from firebase_admin import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from config import (
+    INVOICE_EXPIRY_MINUTES,
     CACHE_TTL_SECONDS,
     LINK_CODE_TTL_MINUTES,
     PLANS,
@@ -401,18 +402,32 @@ async def expire_outdated_subscriptions() -> list[dict]:
             if data.get("endDate") and data["endDate"] < now:
                 d.reference.update({"status": "expired"})
                 expired.append(data)
-        # تنظيف الفواتير المعلقة القديمة (أقدم من يوم) حتى لا تزحم القائمة
-        cutoff = now - dt.timedelta(days=1)
-        for d in client.collection("subscriptions").where(filter=FieldFilter("status", "==", "pending")).stream():
-            created = d.to_dict().get("createdAt")
-            if created and created < cutoff:
-                d.reference.update({"status": "canceled"})
         return expired
 
     expired = await _run(_sync)
     for data in expired:
         _active_cache.pop((data["telegramUserId"], data["groupId"]))
     return expired
+
+
+async def cancel_unpaid(now: Optional[dt.datetime] = None) -> int:
+    """
+    يلغي كل فاتورة لم تُدفع بعد انتهاء مهلة الدفع (30 دقيقة) حتى لا تبقى «بانتظار الدفع» في اللوحات.
+    لو دفع العضو لاحقاً (نادراً، مثلاً تأخر إشعار ميسر) يتفعّل اشتراكه عادي لأن التفعيل يقبل الملغاة.
+    """
+    def _sync():
+        client = db()
+        cutoff = (now or utcnow()) - dt.timedelta(minutes=INVOICE_EXPIRY_MINUTES)
+        count = 0
+        for col in ("subscriptions", "codeOrders"):
+            for d in client.collection(col).where(filter=FieldFilter("status", "==", "pending")).stream():
+                created = d.to_dict().get("createdAt")
+                if created and created < cutoff:
+                    d.reference.update({"status": "canceled", "canceledAt": utcnow()})
+                    count += 1
+        return count
+
+    return await _run(_sync)
 
 
 async def list_user_active_subscriptions(telegram_user_id: int) -> list[dict]:

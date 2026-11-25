@@ -404,6 +404,13 @@ def admin_users_sync(id_token: str, payload: dict) -> tuple[int, dict]:
 
 async def scheduled_reminders() -> int:
     app = await get_application()
+    # كل نصف ساعة: إلغاء الفواتير التي انتهت مهلة دفعها (30 دقيقة) ولم تُدفع
+    try:
+        canceled = await db.cancel_unpaid()
+        if canceled:
+            logger.info("تم إلغاء %s فاتورة غير مدفوعة بعد انتهاء المهلة", canceled)
+    except Exception:
+        logger.exception("تعذر إلغاء الفواتير غير المدفوعة")
     return await bot_handlers.run_reminders(app.bot)
 
 

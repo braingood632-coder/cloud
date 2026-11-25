@@ -409,7 +409,8 @@ function subs() {
   const draw = () => {
     const q = state.q.toLowerCase();
     const rows = state.subs
-      .filter((s) => PAID.has(s.status) || s.status === "pending")
+      // «بانتظار الدفع» تظهر فقط خلال مهلة الدفع (30 دقيقة)، بعدها تُعتبر ملغاة
+      .filter((s) => PAID.has(s.status) || (s.status === "pending" && Date.now() - (toDate(s.createdAt) || 0) < 30 * 60 * 1000))
       .filter((s) => !q || `${s.telegramName} ${s.telegramUsername} ${s.telegramUserId} ${s.groupTitle}`.toLowerCase().includes(q))
       .sort((a, b) => (toDate(b.paidAt || b.createdAt) || 0) - (toDate(a.paidAt || a.createdAt) || 0));
     $("#body").innerHTML = rows.length ? `<div class="table-wrap"><table>

@@ -267,6 +267,14 @@ async def test_full_flow(monkeypatch):
     invoices["inv_3"].update(status="paid", amount=100)
     assert (await hook({"type": "invoice_paid", "data": {"id": "inv_3"}, "secret_token": "test-secret"}, None))[1]["status"] == "amount_mismatch"
 
+    # --- الفاتورة غير المدفوعة تُلغى بعد انتهاء مهلة الـ 30 دقيقة ---
+    assert await db.cancel_unpaid() == 0  # لسا داخل المهلة
+    assert db.db().collection("subscriptions").document("inv_3").get().to_dict()["status"] == "pending"
+    db.db().collection("subscriptions").document("inv_3").update({"createdAt": db.utcnow() - dt.timedelta(minutes=31)})
+    assert await db.cancel_unpaid() == 1
+    assert db.db().collection("subscriptions").document("inv_3").get().to_dict()["status"] == "canceled"
+    assert db.db().collection("subscriptions").document("inv_1").get().to_dict()["status"] == "active"  # المدفوع لا يتأثر
+
     # --- شراء من البوت مباشرة (ليس عضواً في أي قروب) -> كود بعد الدفع يُكتب في القروب ---
     from telegram import ChatMemberLeft
 
