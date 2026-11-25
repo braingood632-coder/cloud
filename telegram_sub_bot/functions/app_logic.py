@@ -317,6 +317,12 @@ async def claim_admin(id_token: str) -> tuple[int, dict]:
 
 
 _USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,29}$")
+# الأرقام العربية/الفارسية -> إنجليزية (نفس ما تفعله صفحة الدخول) حتى لا تختلف كلمة المرور حسب لوحة المفاتيح
+_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+
+
+def _norm(value) -> str:
+    return str(value or "").translate(_DIGITS)
 
 
 def admin_users_sync(id_token: str, payload: dict) -> tuple[int, dict]:
@@ -343,7 +349,7 @@ def admin_users_sync(id_token: str, payload: dict) -> tuple[int, dict]:
         ref = db.db().collection("owners").document(uid) if uid else None
         if ref is None or not ref.get().exists:
             return 404, {"error": "not_found"}
-        login = str(payload.get("login") or "").strip().lower()
+        login = "".join(_norm(payload.get("login")).split()).lower()
         if "@" in login:
             if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", login):
                 return 400, {"error": "bad_email"}
@@ -359,12 +365,12 @@ def admin_users_sync(id_token: str, payload: dict) -> tuple[int, dict]:
         ref.update(update)
         return 200, {"status": "ok", "email": new_email}
 
-    password = str(payload.get("password") or "")
+    password = _norm(payload.get("password"))
     if len(password) < 6:
         return 400, {"error": "weak_password"}
 
     if action == "create":
-        username = str(payload.get("username") or "").strip().lower()
+        username = "".join(_norm(payload.get("username")).split()).lower()
         name = str(payload.get("name") or "").strip()[:80]
         phone = str(payload.get("phone") or "").strip()[:20]
         if not _USERNAME_RE.match(username):

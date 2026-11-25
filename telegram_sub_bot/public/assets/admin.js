@@ -1,7 +1,7 @@
 // لوحة أدمن المنصة: كل أصحاب القروبات، المستحقات، وتسجيل التحويلات
 import {
   $, $$, esc, num, sar, fmtDate, fmtDateTime, toDate, isActive, statusBadge, PAID, toast,
-  summarize, renderDailyChart, renderPlanBars, ICONS, authErrorMessage, downloadCSV,
+  summarize, renderDailyChart, renderPlanBars, ICONS, authErrorMessage, downloadCSV, normDigits,
 } from "/assets/common.js";
 import {
   CFG, auth, db, configured, onAuthStateChanged, signOut, doc, getDoc, setDoc, updateDoc, addDoc, deleteDoc,
@@ -122,8 +122,8 @@ function accounts() {
       <div class="panel"><div class="panel-head"><h2>➕ إنشاء حساب جديد</h2></div>
         <form id="newUserForm" autocomplete="off">
           <div class="field"><label for="nuName">اسم صاحب الحساب</label><input id="nuName" maxlength="80" required /></div>
-          <div class="field"><label for="nuUser">اسم المستخدم (للدخول)</label><input id="nuUser" class="ltr" maxlength="30" placeholder="ahmed" required /></div>
-          <div class="field"><label for="nuPass">كلمة المرور</label><input id="nuPass" class="ltr" minlength="6" required /><small>6 أحرف على الأقل</small></div>
+          <div class="field"><label for="nuUser">اسم المستخدم (للدخول)</label><input id="nuUser" name="cloud-new-login" class="ltr" maxlength="30" placeholder="ahmed" autocomplete="off" autocapitalize="none" spellcheck="false" required /><small>حروف إنجليزية صغيرة وأرقام فقط</small></div>
+          <div class="field"><label for="nuPass">كلمة المرور</label><input id="nuPass" name="cloud-new-secret" class="ltr" minlength="6" autocomplete="new-password" autocapitalize="none" spellcheck="false" required /><small>6 أحرف على الأقل — تظهر لك هنا كما هي</small></div>
           <div class="field"><label for="nuPhone">رقم الجوال (اختياري)</label><input id="nuPhone" class="ltr" maxlength="20" placeholder="05xxxxxxxx" /></div>
           <button class="btn btn-primary btn-block" type="submit">إنشاء الحساب</button>
         </form>
@@ -135,7 +135,7 @@ function accounts() {
             <option value="">— اختر الحساب —</option>
             ${list.map((o) => `<option value="${esc(o.id)}">${esc(o.name)} — ${esc(loginName(o))}</option>`).join("")}
           </select></div>
-          <div class="field"><label for="pwNew">كلمة المرور الجديدة</label><input id="pwNew" class="ltr" minlength="6" required /></div>
+          <div class="field"><label for="pwNew">كلمة المرور الجديدة</label><input id="pwNew" name="cloud-reset-secret" class="ltr" minlength="6" autocomplete="new-password" autocapitalize="none" spellcheck="false" required /></div>
           <button class="btn btn-outline btn-block" type="submit">حفظ كلمة المرور</button>
         </form>
         <hr style="margin:18px 0;opacity:.2" />
@@ -145,7 +145,7 @@ function accounts() {
             <option value="">— اختر الحساب —</option>
             ${list.map((o) => `<option value="${esc(o.id)}">${esc(o.name)} — ${esc(loginName(o))}</option>`).join("")}
           </select></div>
-          <div class="field"><label for="emNew">الإيميل أو اسم المستخدم الجديد</label><input id="emNew" class="ltr" required /></div>
+          <div class="field"><label for="emNew">الإيميل أو اسم المستخدم الجديد</label><input id="emNew" name="cloud-new-email" class="ltr" autocomplete="off" autocapitalize="none" spellcheck="false" required /></div>
           <button class="btn btn-outline btn-block" type="submit">حفظ</button>
         </form>
       </div>
@@ -161,8 +161,8 @@ function accounts() {
     e.preventDefault();
     const btn = e.target.querySelector("button");
     btn.disabled = true;
-    const username = $("#nuUser").value.trim().toLowerCase();
-    const password = $("#nuPass").value;
+    const username = normDigits($("#nuUser").value).replace(/\s+/g, "").toLowerCase();
+    const password = normDigits($("#nuPass").value);
     try {
       await adminUsers({ action: "create", name: $("#nuName").value.trim(), username, password, phone: $("#nuPhone").value.trim() });
       $("#nuResult").innerHTML = `<div class="alert alert-ok">✅ تم إنشاء الحساب. أرسل له بيانات الدخول:<br/>
@@ -192,7 +192,7 @@ function accounts() {
     const btn = e.target.querySelector("button");
     btn.disabled = true;
     try {
-      await adminUsers({ action: "password", uid: $("#pwUser").value, password: $("#pwNew").value });
+      await adminUsers({ action: "password", uid: $("#pwUser").value, password: normDigits($("#pwNew").value) });
       e.target.reset();
       toast("تم تغيير كلمة المرور ✅");
     } catch (err) { toast(err.message); }

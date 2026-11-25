@@ -47,6 +47,11 @@ export function toast(msg) {
   toastTimer = setTimeout(() => el.classList.add("hidden"), 3200);
 }
 
+// الأرقام العربية/الفارسية -> إنجليزية (حتى لا تختلف كلمة المرور حسب لوحة المفاتيح)
+export const normDigits = (s) => String(s ?? "")
+  .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+  .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06F0));
+
 export function authErrorMessage(err) {
   const code = err?.code || "";
   const map = {
@@ -54,9 +59,9 @@ export function authErrorMessage(err) {
     "auth/missing-password": "اكتب كلمة المرور.",
     "auth/weak-password": "كلمة المرور ضعيفة، استخدم 6 أحرف على الأقل.",
     "auth/email-already-in-use": "هذا البريد مسجّل مسبقاً، سجّل الدخول بدلاً من ذلك.",
-    "auth/invalid-credential": "البريد أو كلمة المرور غير صحيحة.",
-    "auth/wrong-password": "البريد أو كلمة المرور غير صحيحة.",
-    "auth/user-not-found": "لا يوجد حساب بهذا البريد.",
+    "auth/invalid-credential": "اسم المستخدم أو كلمة المرور غير صحيحة.",
+    "auth/wrong-password": "اسم المستخدم أو كلمة المرور غير صحيحة.",
+    "auth/user-not-found": "لا يوجد حساب بهذا الاسم.",
     "auth/too-many-requests": "محاولات كثيرة، انتظر قليلاً ثم حاول مرة أخرى.",
     "auth/network-request-failed": "تعذر الاتصال، تأكد من الإنترنت.",
     "permission-denied": "ليس لديك صلاحية لتنفيذ هذا الإجراء.",

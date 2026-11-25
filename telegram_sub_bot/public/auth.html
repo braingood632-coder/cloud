@@ -26,7 +26,7 @@
   </div>
 
 <script type="module">
-  import { ICONS, $, esc, authErrorMessage } from "/assets/common.js";
+  import { ICONS, $, esc, authErrorMessage, normDigits } from "/assets/common.js";
   import { auth, configured, onAuthStateChanged, signInWithEmailAndPassword } from "/assets/firebase.js";
 
   const cfg = window.CLOUD_CONFIG || {};
@@ -45,15 +45,16 @@
   const busy = (form, on) => form.querySelectorAll("button").forEach((b) => (b.disabled = on));
 
   // اسم المستخدم -> بريد داخلي (username@loginDomain). حساب الأدمن يدخل بإيميله كما هو.
-  const toEmail = (v) => (v.includes("@") ? v : `${v.toLowerCase()}@${loginDomain}`);
+  const toEmail = (v) => (v.includes("@") ? v.toLowerCase() : `${v.toLowerCase()}@${loginDomain}`);
 
   $("#loginForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const user = $("#lUser").value.trim();
-    if (!user || !$("#lPass").value) return msg("اكتب اسم المستخدم وكلمة المرور.");
+    const user = normDigits($("#lUser").value).replace(/\s+/g, "");
+    const pass = normDigits($("#lPass").value);
+    if (!user || !pass) return msg("اكتب اسم المستخدم وكلمة المرور.");
     busy(e.target, true);
     try {
-      await signInWithEmailAndPassword(auth, toEmail(user), $("#lPass").value);
+      await signInWithEmailAndPassword(auth, toEmail(user), pass);
     } catch (err) {
       msg(authErrorMessage(err));
       busy(e.target, false);
