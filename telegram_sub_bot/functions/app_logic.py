@@ -23,7 +23,9 @@ from telegram.ext import Application
 import bot_handlers
 import firebase_db as db
 import moyasar_client
-from config import PLANS, settings
+import re
+
+from config import LOGIN_EMAIL_DOMAIN, PLANS, settings
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +290,7 @@ async def config_js(emulators: dict) -> str:
         "supportUsername": settings.SUPPORT_USERNAME,
         "commissionPercent": settings.PLATFORM_COMMISSION_PERCENT,
         "plans": PLANS,
+        "loginDomain": LOGIN_EMAIL_DOMAIN,
     }
     return "window.CLOUD_CONFIG = " + json.dumps(cfg, ensure_ascii=False) + ";"
 
@@ -311,6 +314,59 @@ async def claim_admin(id_token: str) -> tuple[int, dict]:
         return 404, {"error": "no profile"}
     ref.update({"role": "admin"})
     return 200, {"status": "ok"}
+
+
+_USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,29}$")
+
+
+def admin_users_sync(id_token: str, payload: dict) -> tuple[int, dict]:
+    """
+    الأدمن فقط: إنشاء حساب لصاحب قروب (اسم مستخدم + كلمة مرور) أو تغيير كلمة مروره.
+    التسجيل العام مغلق، فهذه هي الطريقة الوحيدة لإنشاء حسابات جديدة.
+    """
+    from firebase_admin import auth as fb_auth
+
+    db.init_firebase()
+    try:
+        decoded = fb_auth.verify_id_token(id_token)
+    except Exception:
+        return 401, {"error": "invalid token"}
+    me = db.db().collection("owners").document(decoded["uid"]).get()
+    if not me.exists or me.to_dict().get("role") != "admin":
+        return 403, {"error": "admin only"}
+
+    action = str(payload.get("action") or "")
+    password = str(payload.get("password") or "")
+    if len(password) < 6:
+        return 400, {"error": "weak_password"}
+
+    if action == "create":
+        username = str(payload.get("username") or "").strip().lower()
+        name = str(payload.get("name") or "").strip()[:80]
+        phone = str(payload.get("phone") or "").strip()[:20]
+        if not _USERNAME_RE.match(username):
+            return 400, {"error": "bad_username"}
+        if len(name) < 2:
+            return 400, {"error": "bad_name"}
+        email = f"{username}@{LOGIN_EMAIL_DOMAIN}"
+        try:
+            user = fb_auth.create_user(email=email, password=password, display_name=name, email_verified=True)
+        except fb_auth.EmailAlreadyExistsError:
+            return 409, {"error": "username_taken"}
+        db.db().collection("owners").document(user.uid).set({
+            "name": name, "email": email, "username": username, "phone": phone,
+            "role": "owner", "createdAt": db.utcnow(), "createdBy": decoded["uid"],
+        })
+        return 200, {"status": "ok", "uid": user.uid, "username": username}
+
+    if action == "password":
+        uid = str(payload.get("uid") or "")
+        if not uid or not db.db().collection("owners").document(uid).get().exists:
+            return 404, {"error": "not_found"}
+        fb_auth.update_user(uid, password=password)
+        return 200, {"status": "ok"}
+
+    return 400, {"error": "bad_action"}
 
 
 # ---------------------------------------------------------------------------

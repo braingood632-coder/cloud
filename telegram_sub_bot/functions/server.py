@@ -189,6 +189,22 @@ async def claim_admin(req: Request) -> Response:
     return _cors(JSONResponse(body, status_code=status))
 
 
+async def admin_users(req: Request) -> Response:
+    if req.method == "OPTIONS":
+        return _cors(Response(status_code=204))
+    auth_header = req.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return _cors(JSONResponse({"error": "bad request"}, status_code=400))
+    try:
+        payload = await req.json()
+    except Exception:
+        payload = None
+    if not isinstance(payload, dict):
+        return _cors(JSONResponse({"error": "invalid json"}, status_code=400))
+    status, body = await asyncio.to_thread(app_logic.admin_users_sync, auth_header[7:], payload)
+    return _cors(JSONResponse(body, status_code=status))
+
+
 async def setup_webhook(_req: Request) -> Response:
     try:
         return JSONResponse(await app_logic.ensure_webhook())
@@ -207,6 +223,7 @@ app = Starlette(
         Route("/config.js", web_config),
         Route("/api/claim-admin", claim_admin, methods=["POST", "OPTIONS"]),
         Route("/api/setup-webhook", setup_webhook),
+        Route("/api/admin/users", admin_users, methods=["POST", "OPTIONS"]),
     ],
     lifespan=lifespan,
 )

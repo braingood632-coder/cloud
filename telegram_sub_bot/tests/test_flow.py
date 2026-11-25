@@ -385,3 +385,43 @@ async def test_admin_requires_verified_email():
     auth.update_user(uid, email_verified=True)
     await db.sync_admin_roles()
     assert db.db().collection("owners").document(uid).get().to_dict()["role"] == "admin"
+
+
+def _emulator_sign_in(email, password):
+    au = os.environ["FIREBASE_AUTH_EMULATOR_HOST"]
+    r = httpx.post(f"http://{au}/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=fake",
+                   json={"email": email, "password": password, "returnSecureToken": True})
+    return r.json().get("idToken")
+
+
+async def test_admin_creates_accounts():
+    from config import LOGIN_EMAIL_DOMAIN
+
+    admin_uid = create_owner("chief@example.com", "Chief", verified=True)
+    db.db().collection("owners").document(admin_uid).update({"role": "admin"})
+    admin_token = _emulator_sign_in("chief@example.com", "secret123")
+    normal_uid = create_owner("normal@example.com", "Normal")
+    normal_token = _emulator_sign_in("normal@example.com", "secret123")
+    assert admin_token and normal_token
+
+    new = {"action": "create", "name": "أحمد", "username": "Ahmed_1", "password": "pass123", "phone": "0500000000"}
+    # غير الأدمن ممنوع
+    assert app_logic.admin_users_sync(normal_token, new)[0] == 403
+    assert app_logic.admin_users_sync("bad-token", new)[0] == 401
+    # تحقق من المدخلات
+    assert app_logic.admin_users_sync(admin_token, {**new, "username": "a!"})[1]["error"] == "bad_username"
+    assert app_logic.admin_users_sync(admin_token, {**new, "password": "123"})[1]["error"] == "weak_password"
+    # إنشاء الحساب
+    status, body = app_logic.admin_users_sync(admin_token, new)
+    assert status == 200 and body["username"] == "ahmed_1"
+    owner = db.db().collection("owners").document(body["uid"]).get().to_dict()
+    assert owner["role"] == "owner" and owner["username"] == "ahmed_1" and owner["email"] == f"ahmed_1@{LOGIN_EMAIL_DOMAIN}"
+    assert _emulator_sign_in(f"ahmed_1@{LOGIN_EMAIL_DOMAIN}", "pass123")
+    # اسم مستخدم مكرر
+    assert app_logic.admin_users_sync(admin_token, new)[0] == 409
+    # تغيير كلمة المرور
+    assert app_logic.admin_users_sync(admin_token, {"action": "password", "uid": body["uid"], "password": "newpass9"})[0] == 200
+    assert _emulator_sign_in(f"ahmed_1@{LOGIN_EMAIL_DOMAIN}", "newpass9")
+    assert not _emulator_sign_in(f"ahmed_1@{LOGIN_EMAIL_DOMAIN}", "pass123")
+    assert app_logic.admin_users_sync(admin_token, {"action": "password", "uid": "nope", "password": "newpass9"})[0] == 404
+    assert normal_uid

@@ -4,12 +4,14 @@ import {
   summarize, renderDailyChart, renderPlanBars, ICONS, authErrorMessage, downloadCSV,
 } from "/assets/common.js";
 import {
-  CFG, auth, db, configured, onAuthStateChanged, signOut, doc, getDoc, addDoc, deleteDoc,
+  CFG, auth, db, configured, onAuthStateChanged, signOut, doc, getDoc, setDoc, updateDoc, addDoc, deleteDoc,
   collection, onSnapshot, serverTimestamp, reload, sendEmailVerification,
 } from "/assets/firebase.js";
 
 const PAGES = [
   ["overview", "نظرة عامة", "📊"],
+  ["accounts", "الحسابات", "🔐"],
+  ["link", "ربط قروب", "🔗"],
   ["owners", "أصحاب القروبات", "👑"],
   ["groups", "كل القروبات", "👥"],
   ["subs", "كل الاشتراكات", "🧾"],
@@ -77,7 +79,185 @@ if (configured) {
 
 function render() {
   if (state.loaded < 4) return;
-  ({ overview, owners, groups, subs, payouts })[page()]();
+  // لا نعيد رسم صفحات النماذج أثناء الكتابة فيها
+  if ((page() === "accounts" && $("#newUserForm")) || (page() === "link" && $("#linkPanel"))) {
+    if (page() === "link") checkLinked();
+    return;
+  }
+  ({ overview, accounts, link, owners, groups, subs, payouts })[page()]();
+}
+
+// ---------------------------------------------------------------------------
+// الحسابات: الأدمن ينشئ حسابات أصحاب القروبات (اسم مستخدم + كلمة مرور)
+// ---------------------------------------------------------------------------
+const API = ((window.CLOUD_CONFIG || {}).apiBase || "").replace(/\/$/, "");
+const USER_ERRORS = {
+  weak_password: "كلمة المرور يجب أن تكون 6 أحرف على الأقل.",
+  bad_username: "اسم المستخدم: 3 إلى 30 حرفاً إنجليزياً صغيراً أو أرقاماً (ويسمح بـ . _ -) ويبدأ بحرف أو رقم.",
+  bad_name: "اكتب اسم صاحب الحساب.",
+  username_taken: "اسم المستخدم مستخدم مسبقاً، اختر اسماً آخر.",
+  admin_only: "هذه العملية للأدمن فقط.",
+  not_found: "الحساب غير موجود.",
+};
+
+async function adminUsers(payload) {
+  const res = await fetch(`${API}/api/admin/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + (await state.user.getIdToken()) },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(USER_ERRORS[data.error] || "تعذر تنفيذ العملية، حاول مرة أخرى.");
+  return data;
+}
+
+const loginName = (o) => o.username || o.email || "";
+
+function accounts() {
+  const list = [...state.owners].sort((a, b) => (toDate(b.createdAt) || 0) - (toDate(a.createdAt) || 0));
+  $("#main").innerHTML = `
+    ${head("الحسابات", "التسجيل مغلق للعامة — أنشئ هنا حساب كل صاحب قروب (اسم مستخدم + كلمة مرور) وأرسلها له.")}
+    <div class="two-col">
+      <div class="panel"><div class="panel-head"><h2>➕ إنشاء حساب جديد</h2></div>
+        <form id="newUserForm" autocomplete="off">
+          <div class="field"><label for="nuName">اسم صاحب الحساب</label><input id="nuName" maxlength="80" required /></div>
+          <div class="field"><label for="nuUser">اسم المستخدم (للدخول)</label><input id="nuUser" class="ltr" maxlength="30" placeholder="ahmed" required /></div>
+          <div class="field"><label for="nuPass">كلمة المرور</label><input id="nuPass" class="ltr" minlength="6" required /><small>6 أحرف على الأقل</small></div>
+          <div class="field"><label for="nuPhone">رقم الجوال (اختياري)</label><input id="nuPhone" class="ltr" maxlength="20" placeholder="05xxxxxxxx" /></div>
+          <button class="btn btn-primary btn-block" type="submit">إنشاء الحساب</button>
+        </form>
+        <div id="nuResult"></div>
+      </div>
+      <div class="panel"><div class="panel-head"><h2>🔑 تغيير كلمة مرور</h2></div>
+        <form id="pwForm" autocomplete="off">
+          <div class="field"><label for="pwUser">الحساب</label><select id="pwUser" required>
+            <option value="">— اختر الحساب —</option>
+            ${list.map((o) => `<option value="${esc(o.id)}">${esc(o.name)} — ${esc(loginName(o))}</option>`).join("")}
+          </select></div>
+          <div class="field"><label for="pwNew">كلمة المرور الجديدة</label><input id="pwNew" class="ltr" minlength="6" required /></div>
+          <button class="btn btn-outline btn-block" type="submit">حفظ كلمة المرور</button>
+        </form>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-head"><h2>كل الحسابات (${list.length})</h2></div><div class="table-wrap"><table>
+      <thead><tr><th>الاسم</th><th>اسم المستخدم / الإيميل</th><th>الجوال</th><th>النوع</th><th>القروبات</th><th>تاريخ الإنشاء</th></tr></thead>
+      <tbody>${list.map((o) => `<tr><td><b>${esc(o.name)}</b></td><td class="ltr">${esc(loginName(o))}</td><td class="ltr">${esc(o.phone || "-")}</td>
+        <td>${o.role === "admin" ? '<span class="badge badge-muted">أدمن</span>' : "صاحب قروب"}</td>
+        <td>${state.groups.filter((g) => g.ownerUid === o.id).length}</td><td>${fmtDate(o.createdAt)}</td></tr>`).join("")
+        || '<tr><td colspan="6" class="empty">لا توجد حسابات</td></tr>'}</tbody></table></div></div>`;
+
+  $("#newUserForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    const username = $("#nuUser").value.trim().toLowerCase();
+    const password = $("#nuPass").value;
+    try {
+      await adminUsers({ action: "create", name: $("#nuName").value.trim(), username, password, phone: $("#nuPhone").value.trim() });
+      $("#nuResult").innerHTML = `<div class="alert alert-ok">✅ تم إنشاء الحساب. أرسل له بيانات الدخول:<br/>
+        الرابط: <span class="ltr">${esc(location.origin)}/auth.html</span><br/>اسم المستخدم: <b class="ltr">${esc(username)}</b><br/>كلمة المرور: <b class="ltr">${esc(password)}</b></div>`;
+      e.target.reset();
+      toast("تم إنشاء الحساب ✅");
+    } catch (err) {
+      $("#nuResult").innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+    }
+    btn.disabled = false;
+  });
+  $("#pwForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    try {
+      await adminUsers({ action: "password", uid: $("#pwUser").value, password: $("#pwNew").value });
+      e.target.reset();
+      toast("تم تغيير كلمة المرور ✅");
+    } catch (err) { toast(err.message); }
+    btn.disabled = false;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// ربط قروب (للأدمن فقط): كود ربط باسم صاحب القروب المختار
+// ---------------------------------------------------------------------------
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const CODE_TTL_MIN = 15;
+let pendingLink = null; // { code, ownerUid, createdAt, knownGroups }
+let linkTimer;
+
+function newLinkCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+}
+
+function checkLinked() {
+  if (!pendingLink) return;
+  const fresh = state.groups.find((g) => g.ownerUid === pendingLink.ownerUid && !pendingLink.knownGroups.has(g.id));
+  if (fresh) {
+    toast(`✅ تم ربط القروب «${fresh.title || ""}» بنجاح`);
+    pendingLink = null;
+    link();
+  }
+}
+
+function link() {
+  const bot = CFG.botUsername;
+  const owners = [...state.owners].sort((a, b) => String(a.name).localeCompare(String(b.name), "ar"));
+  const pl = pendingLink;
+  const left = pl ? CODE_TTL_MIN * 60 - Math.floor((Date.now() - pl.createdAt) / 1000) : 0;
+  if (pl && left <= 0) pendingLink = null;
+  const owner = pendingLink && state.owners.find((o) => o.id === pendingLink.ownerUid);
+
+  $("#main").innerHTML = `
+    ${head("ربط قروب", "ربط القروبات متاح للأدمن فقط. اختر حساب صاحب القروب ثم اربط القروب بالكود — إحصائيات القروب تظهر في حسابه.")}
+    <div class="panel" id="linkPanel">
+      <form id="linkForm" class="filters" style="align-items:flex-end">
+        <div class="field" style="flex:1;min-width:220px"><label for="linkOwner">حساب صاحب القروب</label><select id="linkOwner" required>
+          <option value="">— اختر الحساب —</option>
+          ${owners.map((o) => `<option value="${esc(o.id)}" ${pendingLink?.ownerUid === o.id ? "selected" : ""}>${esc(o.name)} — ${esc(loginName(o))}</option>`).join("")}
+        </select></div>
+        <button class="btn btn-primary" type="submit">🔗 إنشاء كود ربط</button>
+      </form>
+      ${pendingLink ? `<div class="link-box">
+        <div class="panel-head"><h2>كود الربط لحساب «${esc(owner?.name || "")}»</h2><span class="muted" id="countdown"></span></div>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="code">${pendingLink.code}</span>
+        <button class="btn btn-outline btn-sm" id="copyCode" type="button">نسخ الأمر</button></div>
+        <ol class="link-steps">
+          <li><b>الطريقة السريعة:</b> اضغط الزر واختر القروب — سيُضاف البوت مشرفاً ويتم الربط تلقائياً.<br/>
+            ${bot ? `<a class="btn btn-primary btn-sm" style="margin-top:8px" target="_blank" rel="noopener" href="https://t.me/${encodeURIComponent(bot)}?startgroup=${pendingLink.code}&admin=delete_messages">➕ أضف البوت إلى القروب</a>` : ""}</li>
+          <li><b>أو يدوياً:</b> أضف ${bot ? `<span class="ltr">@${esc(bot)}</span>` : "البوت"} للقروب، واجعله <b>مشرفاً</b> مع صلاحية <b>حذف الرسائل</b>.</li>
+          <li>ثم أرسل داخل القروب: <code>/link ${pendingLink.code}</code></li>
+          <li>الكود صالح ${CODE_TTL_MIN} دقيقة ولمرة واحدة.</li>
+        </ol></div>` : ""}
+    </div>`;
+
+  $("#linkForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const ownerUid = $("#linkOwner").value;
+    if (!ownerUid) return toast("اختر حساب صاحب القروب");
+    for (let i = 0; i < 3; i++) {
+      const code = newLinkCode();
+      try {
+        await setDoc(doc(db, "linkCodes", code), { ownerUid, createdAt: serverTimestamp() });
+        pendingLink = { code, ownerUid, createdAt: Date.now(), knownGroups: new Set(state.groups.filter((g) => g.ownerUid === ownerUid).map((g) => g.id)) };
+        link();
+        return;
+      } catch (err) { if (i === 2) onErr(err); }
+    }
+  });
+  $("#copyCode")?.addEventListener("click", () => navigator.clipboard?.writeText(`/link ${pendingLink.code}`).then(() => toast("تم نسخ الأمر")));
+
+  clearInterval(linkTimer);
+  if (pendingLink) {
+    const tick = () => {
+      if (!pendingLink || page() !== "link") return clearInterval(linkTimer);
+      const s = CODE_TTL_MIN * 60 - Math.floor((Date.now() - pendingLink.createdAt) / 1000);
+      if (s <= 0) { pendingLink = null; clearInterval(linkTimer); link(); return; }
+      const el = $("#countdown");
+      if (el) el.textContent = `ينتهي خلال ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    };
+    tick();
+    linkTimer = setInterval(tick, 1000);
+  }
 }
 
 function ownerRows() {
@@ -122,7 +302,7 @@ function owners() {
     <div class="panel"><div class="table-wrap"><table>
       <thead><tr><th>صاحب القروب</th><th>التواصل</th><th>الحساب البنكي</th><th>القروبات</th><th>نشط</th><th>المبيعات</th><th>صافي له</th><th>حُوّل</th><th>الرصيد</th><th></th></tr></thead>
       <tbody>${rows.map(({ o, S, groups }) => `<tr>
-        <td><b>${esc(o.name)}</b>${o.role === "admin" ? ' <span class="badge badge-muted">أدمن</span>' : ""}<span class="sub ltr">${esc(o.email)}</span><span class="sub">منذ ${fmtDate(o.createdAt)}</span></td>
+        <td><b>${esc(o.name)}</b>${o.role === "admin" ? ' <span class="badge badge-muted">أدمن</span>' : ""}<span class="sub ltr">${esc(loginName(o))}</span><span class="sub">منذ ${fmtDate(o.createdAt)}</span></td>
         <td><span class="ltr">${esc(o.phone || "-")}</span>${o.telegramUsername ? `<span class="sub ltr"><a href="https://t.me/${encodeURIComponent(o.telegramUsername)}" target="_blank" rel="noopener">@${esc(o.telegramUsername)}</a></span>` : ""}</td>
         <td>${o.iban ? `${esc(o.accountHolder || "")}<span class="sub">${esc(o.bankName || "")}</span><span class="sub ltr">${esc(o.iban)}</span>` : '<span class="badge badge-warn">غير مضاف</span>'}</td>
         <td>${groups.length}</td>
@@ -173,16 +353,24 @@ function groups() {
   $("#main").innerHTML = `
     ${head("كل القروبات", `${state.groups.length} قروب`)}
     <div class="panel"><div class="table-wrap"><table>
-      <thead><tr><th>القروب</th><th>صاحبه</th><th>الحالة</th><th>الأعضاء</th><th>مشترك نشط</th><th>رسائل محذوفة</th><th>تاريخ الربط</th><th></th></tr></thead>
+      <thead><tr><th>القروب</th><th>صاحبه</th><th>الحالة</th><th>الأعضاء</th><th>مشترك نشط</th><th>رسائل محذوفة</th><th>التذكير</th><th>تاريخ الربط</th><th></th></tr></thead>
       <tbody>${state.groups.map((g) => {
         const active = state.subs.filter((s) => String(s.groupId) === g.id && isActive(s, now)).length;
         const st = g.active === false ? '<span class="badge badge-bad">البوت خارج القروب</span>'
           : g.canDelete === false ? '<span class="badge badge-warn">بدون صلاحية حذف</span>' : '<span class="badge badge-good">يعمل</span>';
         return `<tr><td><b>${esc(g.title)}</b><span class="sub ltr">${esc(g.id)}</span></td><td>${esc(ownerName(g.ownerUid))}</td><td>${st}</td>
-          <td>${num(g.memberCount || 0)}</td><td>${num(active)}</td><td>${num(g.blockedMessages || 0)}</td><td>${fmtDate(g.linkedAt)}</td>
+          <td>${num(g.memberCount || 0)}</td><td>${num(active)}</td><td>${num(g.blockedMessages || 0)}</td>
+          <td><label class="switch" title="رسالة التذكير كل 30 دقيقة"><input type="checkbox" data-remind="${esc(g.id)}" ${g.remindersEnabled !== false ? "checked" : ""}/><span></span></label></td>
+          <td>${fmtDate(g.linkedAt)}</td>
           <td><button class="btn btn-danger btn-sm" data-unlink="${esc(g.id)}">فك الربط</button></td></tr>`;
-      }).join("") || '<tr><td colspan="8" class="empty">لا توجد قروبات</td></tr>'}</tbody>
+      }).join("") || '<tr><td colspan="9" class="empty">لا توجد قروبات</td></tr>'}</tbody>
     </table></div></div>`;
+  $$("[data-remind]").forEach((el) => el.addEventListener("change", async () => {
+    try {
+      await updateDoc(doc(db, "groups", el.dataset.remind), { remindersEnabled: el.checked });
+      toast(el.checked ? "تم تشغيل رسالة التذكير" : "تم إيقاف رسالة التذكير");
+    } catch (err) { onErr(err); el.checked = !el.checked; }
+  }));
   $$("[data-unlink]").forEach((b) => b.addEventListener("click", () =>
     confirmBox("فك ربط القروب؟", "سيتوقف البوت عن حماية هذا القروب.", () => deleteDoc(doc(db, "groups", b.dataset.unlink)).then(() => toast("تم")).catch(onErr))));
 }

@@ -54,14 +54,12 @@ if (!configured) {
     state.user = user;
     $("#meEmail").textContent = user.email;
 
-    // لو انقطع التسجيل قبل إنشاء الملف الشخصي ننشئه الآن
+    // الحسابات ينشئها الأدمن فقط؛ حساب بدون ملف = غير مفعّل
     const ownerRef = doc(db, "owners", user.uid);
-    const snap = await getDoc(ownerRef);
-    if (!snap.exists()) {
-      await setDoc(ownerRef, {
-        name: user.displayName || user.email.split("@")[0], email: user.email, phone: "",
-        role: "owner", createdAt: serverTimestamp(),
-      });
+    const snap = await getDoc(ownerRef).catch(() => null);
+    if (!snap || !snap.exists()) {
+      $("#main").innerHTML = '<div class="alert alert-error">هذا الحساب غير مفعّل. تواصل مع إدارة المنصة.</div>';
+      return;
     }
 
     onSnapshot(ownerRef, (s) => {
@@ -139,7 +137,6 @@ function overview() {
 
   $("#main").innerHTML = `
     ${head(`أهلاً ${esc(state.owner.name)} 👋`, "ملخص قروباتك ومشتركيك وأرباحك — يتحدث تلقائياً لحظة بلحظة.", `<a href="#groups" class="btn btn-primary">+ ربط قروب جديد</a>`)}
-    ${welcome ? `<div class="alert alert-ok">تم إنشاء حسابك بنجاح 🎉 الخطوة التالية: <a href="#groups"><b>اربط قروبك الأول</b></a>.</div>` : ""}
     ${!state.owner.iban ? `<div class="alert alert-warn">أضف بياناتك البنكية (الآيبان) من <a href="#account"><b>صفحة حسابي</b></a> حتى نستطيع تحويل مستحقاتك.</div>` : ""}
     <div class="stats">
       <div class="stat hero-stat"><span>الرصيد المستحق لك</span><b>${sar(S.balance)}</b><small>بانتظار التحويل</small></div>
@@ -184,51 +181,12 @@ function groupTitle(s) {
 // ---------------------------------------------------------------------------
 // القروبات + الربط
 // ---------------------------------------------------------------------------
-const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const CODE_TTL_MIN = 15;
-
-function newCode() {
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  return [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
-}
-
-async function generateCode() {
-  for (let i = 0; i < 3; i++) {
-    const code = newCode();
-    try {
-      await setDoc(doc(db, "linkCodes", code), { ownerUid: state.user.uid, createdAt: serverTimestamp() });
-      state.pendingCode = { code, createdAt: Date.now() };
-      groups();
-      return;
-    } catch (err) {
-      if (i === 2) onErr(err);
-    }
-  }
-}
-
-let countdownTimer;
 function groups() {
   const stats = groupStats();
-  const bot = CFG.botUsername;
-  const pc = state.pendingCode;
-  const remaining = pc ? Math.max(0, CODE_TTL_MIN * 60 - Math.floor((Date.now() - pc.createdAt) / 1000)) : 0;
-  if (pc && remaining === 0) state.pendingCode = null;
 
-  const linkBox = state.pendingCode
-    ? `<div class="link-box">
-        <div class="panel-head"><h2>كود الربط الخاص بك</h2><span class="muted" id="countdown"></span></div>
-        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="code" id="codeText">${pc.code}</span>
-        <button class="btn btn-outline btn-sm" id="copyCode">نسخ الأمر</button></div>
-        <ol class="link-steps">
-          <li><b>الطريقة السريعة:</b> اضغط الزر وسيُطلب منك اختيار قروبك — سيُضاف البوت مشرفاً ويتم الربط تلقائياً.<br/>
-            ${bot ? `<a class="btn btn-primary btn-sm" style="margin-top:8px" target="_blank" rel="noopener" href="https://t.me/${encodeURIComponent(bot)}?startgroup=${pc.code}&admin=delete_messages">➕ أضف البوت إلى قروبك</a>` : ""}</li>
-          <li><b>أو يدوياً:</b> أضف ${bot ? `<a class="ltr" href="https://t.me/${encodeURIComponent(bot)}" target="_blank" rel="noopener">@${esc(bot)}</a>` : "البوت"} لقروبك، واجعله <b>مشرفاً</b> مع صلاحية <b>حذف الرسائل</b>.</li>
-          <li>ثم أرسل داخل القروب: <code>/link ${pc.code}</code></li>
-          <li>ستظهر رسالة نجاح هنا وفي القروب فوراً. الكود صالح ${CODE_TTL_MIN} دقيقة ولمرة واحدة.</li>
-        </ol></div>`
-    : `<div class="link-box center"><p style="margin-bottom:14px">اربط قروباً جديداً ببوت Cloud — التسجيل والربط مجاني تماماً.</p>
-        <button class="btn btn-primary" id="genCode">🔗 ربط قروب جديد</button></div>`;
-
+  // ربط القروبات صار من لوحة الأدمن فقط؛ صاحب القروب يشاهد الإحصائيات
+  const linkBox = `<div class="link-box center"><p>ربط القروبات يتم عن طريق إدارة المنصة. لربط قروب جديد تواصل مع الدعم الفني${
+    CFG.supportUsername ? ` <a class="ltr" href="https://t.me/${encodeURIComponent(CFG.supportUsername)}" target="_blank" rel="noopener">@${esc(CFG.supportUsername)}</a>` : ""}.</p></div>`;
   const rows = state.groups
     .sort((a, b) => (toDate(b.linkedAt) || 0) - (toDate(a.linkedAt) || 0))
     .map((g) => {
@@ -245,9 +203,8 @@ function groups() {
         <td>${num(st.total)}</td>
         <td>${sar(st.revenue)}</td>
         <td>${num(g.blockedMessages || 0)}</td>
-        <td><label class="switch" title="رسالة التذكير كل 30 دقيقة"><input type="checkbox" data-remind="${esc(g.id)}" ${g.remindersEnabled !== false ? "checked" : ""}/><span></span></label></td>
+        <td>${g.remindersEnabled !== false ? "مفعّل" : "متوقف"}</td>
         <td>${fmtDate(g.linkedAt)}</td>
-        <td><button class="btn btn-danger btn-sm" data-unlink="${esc(g.id)}">فك الربط</button></td>
       </tr>`;
     }).join("");
 
@@ -257,38 +214,10 @@ function groups() {
     <div class="panel">
       <div class="panel-head"><h2>قروباتي (${state.groups.length})</h2></div>
       ${state.groups.length ? `<div class="table-wrap"><table><thead><tr>
-        <th>القروب</th><th>حالة البوت</th><th>الأعضاء</th><th>مشترك نشط</th><th>إجمالي الاشتراكات</th><th>أرباحك</th><th>رسائل محذوفة</th><th>التذكير</th><th>تاريخ الربط</th><th></th>
-      </tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">لم تربط أي قروب بعد.</div>'}
+        <th>القروب</th><th>حالة البوت</th><th>الأعضاء</th><th>مشترك نشط</th><th>إجمالي الاشتراكات</th><th>أرباحك</th><th>رسائل محذوفة</th><th>التذكير</th><th>تاريخ الربط</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty">لا توجد قروبات مربوطة بحسابك بعد.</div>'}
     </div>`;
 
-  $("#genCode")?.addEventListener("click", generateCode);
-  $("#copyCode")?.addEventListener("click", () => {
-    navigator.clipboard?.writeText(`/link ${state.pendingCode.code}`).then(() => toast("تم نسخ الأمر"));
-  });
-  $$("[data-remind]").forEach((el) => el.addEventListener("change", async () => {
-    try {
-      await updateDoc(doc(db, "groups", el.dataset.remind), { remindersEnabled: el.checked });
-      toast(el.checked ? "تم تشغيل رسالة التذكير" : "تم إيقاف رسالة التذكير");
-    } catch (err) { onErr(err); el.checked = !el.checked; }
-  }));
-  $$("[data-unlink]").forEach((el) => el.addEventListener("click", () => {
-    const g = state.groups.find((x) => x.id === el.dataset.unlink);
-    confirmBox("فك ربط القروب؟", `سيتوقف البوت عن حماية «${g?.title || ""}» ولن يستطيع الأعضاء الاشتراك فيه. سجل الاشتراكات السابقة يبقى محفوظاً.`, async () => {
-      try { await deleteDoc(doc(db, "groups", el.dataset.unlink)); toast("تم فك الربط"); } catch (err) { onErr(err); }
-    });
-  }));
-
-  clearInterval(countdownTimer);
-  if (state.pendingCode) {
-    const tick = () => {
-      const left = CODE_TTL_MIN * 60 - Math.floor((Date.now() - state.pendingCode.createdAt) / 1000);
-      if (left <= 0) { state.pendingCode = null; clearInterval(countdownTimer); groups(); return; }
-      const el = $("#countdown");
-      if (el) el.textContent = `ينتهي خلال ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
-    };
-    tick();
-    countdownTimer = setInterval(tick, 1000);
-  }
 }
 
 // ---------------------------------------------------------------------------

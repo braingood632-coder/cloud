@@ -32,35 +32,33 @@ service cloud.firestore {
 
     match /owners/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(profileFields().concat(['email', 'role', 'createdAt']))
-        && request.resource.data.role == 'owner'
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.createdAt == request.time
-        && validProfile(request.resource.data);
+      // الحسابات ينشئها الأدمن فقط عبر السيرفر (Admin SDK)؛ التسجيل العام مغلق
+      allow create: if false;
       allow update: if signedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileFields())
         && validProfile(request.resource.data);
       allow delete: if false;
     }
 
+    // ربط القروبات للأدمن فقط: يولّد الكود لحساب صاحب القروب الذي يختاره
     match /linkCodes/{code} {
-      allow create: if signedIn()
+      allow create: if isAdmin()
         && code.matches('^[A-Z0-9]{8}$')
         && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt'])
-        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid is string
+        && exists(/databases/$(database)/documents/owners/$(request.resource.data.ownerUid))
         && request.resource.data.createdAt == request.time;
-      allow read, delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+      allow read, delete: if isAdmin();
       allow update: if false;
     }
 
     match /groups/{groupId} {
       allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
-      // صاحب القروب يستطيع فقط تشغيل/إيقاف رسالة التذكير، أو فك الربط
-      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid
+      // صاحب القروب يشاهد فقط؛ الأدمن وحده يشغّل/يوقف التذكير أو يفك الربط
+      allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['remindersEnabled'])
         && request.resource.data.remindersEnabled is bool;
-      allow delete: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow delete: if isAdmin();
       allow create: if false;
     }
 
