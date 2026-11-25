@@ -109,7 +109,9 @@ async def verify_and_activate(invoice_id: str) -> str:
     db.init_firebase()
     sub = await db.get_subscription(invoice_id)
     if sub is None:
-        return "not_found"
+        # شراء من البوت مباشرة (بدون قروب): بعد الدفع نولّد كوداً ونرسله للمشتري
+        status, _ = await verify_code_order(invoice_id)
+        return status
     if sub.get("status") in ("active", "expired"):
         return "already"
 
@@ -141,6 +143,47 @@ async def verify_and_activate(invoice_id: str) -> str:
         except Exception:
             logger.warning("تعذر إرسال رسالة التفعيل للمستخدم %s", data.get("telegramUserId"))
     return status
+
+
+def code_message(order: dict) -> str:
+    return (
+        "✅ تم الدفع بنجاح!\n\n"
+        f"📦 الباقة: {order.get('planName', '')} ({order.get('planDays', '')} يوم)\n"
+        f"🔑 كود الاشتراك: {db.format_redeem_code(order['code'])}\n\n"
+        "اكتب الكود داخل القروب اللي تبي تشترك فيه، ويتفعّل اشتراكك فوراً ولا تُحذف رسائلك.\n"
+        "⚠️ الكود يُستخدم مرة واحدة فقط."
+    )
+
+
+async def verify_code_order(invoice_id: str) -> tuple[str, Optional[dict]]:
+    """
+    طلب شراء من البوت بدون قروب: نتحقق من ميسر مباشرة أن الفاتورة مدفوعة بالمبلغ الصحيح،
+    ثم نولّد كوداً جديداً (مرة واحدة فقط لكل عملية دفع) ونرسله للمشتري في البوت.
+    """
+    order = await db.get_code_order(invoice_id)
+    if order is None:
+        return "not_found", None
+    if order.get("code"):
+        return "already", order
+
+    invoice = await moyasar_client.fetch_invoice(invoice_id)
+    if invoice.get("status") != "paid":
+        return "not_paid", order
+    expected = int(round(float(order["amount"]) * 100))
+    if int(invoice.get("amount", 0)) != expected or invoice.get("currency", "SAR") != "SAR":
+        logger.error("مبلغ الفاتورة %s لا يطابق المتوقع (%s)", invoice_id, expected)
+        return "amount_mismatch", order
+
+    payment = moyasar_client.paid_payment(invoice) or {}
+    status, order = await db.mark_code_order_paid(invoice_id, payment.get("id"))
+    if status == "new":
+        try:
+            app = await get_application()
+            await app.bot.send_message(chat_id=int(order["buyerTelegramId"]), text=code_message(order))
+        except Exception:
+            logger.warning("تعذر إرسال كود الاشتراك للمستخدم %s", order.get("buyerTelegramId"))
+        return "ok", order
+    return "already", order
 
 
 async def handle_moyasar_webhook(payload: dict, header_token: Optional[str]) -> tuple[int, dict]:
@@ -193,6 +236,15 @@ async def payment_callback_html(payment_id: Optional[str], invoice_id: Optional[
 
     username = await bot_username()
     button = f'<a class="btn btn-primary" href="https://t.me/{username}">العودة إلى البوت</a>' if username else ""
+    if result in ("ok", "already") and invoice_id:
+        order = await db.get_code_order(invoice_id)
+        if order and order.get("code"):
+            return _RESULT_PAGE.format(
+                site=settings.PUBLIC_BASE_URL, icon="✅", title="تم الدفع بنجاح",
+                text=("كود الاشتراك الخاص بك (يُستخدم مرة واحدة):<br><b class=\"ltr\" style=\"font-size:1.8rem;letter-spacing:3px\">"
+                      f"{db.format_redeem_code(order['code'])}</b><br>وصلك الكود في البوت أيضاً. اكتبه داخل القروب ليتفعّل اشتراكك."),
+                button=button,
+            )
     if result in ("ok", "already"):
         return _RESULT_PAGE.format(site=settings.PUBLIC_BASE_URL, icon="✅", title="تم الدفع بنجاح",
                                    text="تم تفعيل اشتراكك، ويمكنك الآن النشر في المجموعة. وصلتك رسالة تأكيد من البوت.", button=button)

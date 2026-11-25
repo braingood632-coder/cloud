@@ -54,6 +54,9 @@ logger = logging.getLogger(__name__)
 
 ADMIN_STATUSES = (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER)
 
+# رقم وهمي للقروب في أزرار الباقات = شراء من البوت مباشرة (بدون قروب) -> كود بعد الدفع
+CODE_GROUP_ID = 0
+
 
 def _subscribe_url(bot_username: str, chat_id: int) -> str:
     return f"https://t.me/{bot_username}?start=sub_{chat_id}"
@@ -191,13 +194,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
+    # دخل البوت مباشرة وليس عضواً في أي قروب مربوط: يشتري عادي، وبعد الدفع يوصله كود يكتبه في القروب
     await message.reply_text(
-        f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🤖☁️\n\n"
-        "🔒 الكتابة في المجموعة متاحة للمشتركين فقط.\n\n"
-        "✅ للاشتراك: اضغط زر «اشترك» الموجود داخل المجموعة التي ترغب في الكتابة بها، "
-        "واختر الباقة المناسبة، وبعد الدفع تقدر تكتب بحرية بدون حذف لرسائلك.\n\n"
-        "📋 لعرض اشتراكاتك: /mysubs\n"
-        f"🛟 الدعم الفني: @{settings.SUPPORT_USERNAME}"
+        text=(
+            f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🤖☁️\n\n"
+            "📦 قم باختيار إحدى باقات الاشتراك التالية 📦\n\n"
+            "بعد الدفع يوصلك كود اشتراك (يُستخدم مرة واحدة)، اكتبه داخل القروب ويتفعّل اشتراكك فوراً."
+        ),
+        reply_markup=_plans_keyboard(CODE_GROUP_ID),
     )
 
 
@@ -270,16 +274,18 @@ async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     plan = PLANS.get(plan_key)
-    group = await db.get_linked_group(group_id)
-    if plan is None or group is None:
+    code_purchase = group_id == CODE_GROUP_ID  # شراء من البوت مباشرة -> كود بعد الدفع
+    group = None if code_purchase else await db.get_linked_group(group_id)
+    if plan is None or (group is None and not code_purchase):
         await query.edit_message_text("عذراً، هذه الباقة أو هذا القروب لم يعد متاحاً.")
         return
 
     user = query.from_user
+    tg_user = {"id": user.id, "name": user.full_name, "username": user.username}
     try:
         invoice = await moyasar_client.create_invoice(
             amount_sar=plan["price"],
-            description=f"اشتراك {plan['name']} - {group.get('title', '')}",
+            description=f"اشتراك {plan['name']}" + ("" if code_purchase else f" - {group.get('title', '')}"),
             telegram_user_id=user.id,
             group_id=group_id,
             plan_key=plan_key,
@@ -289,13 +295,16 @@ async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("حدث خطأ أثناء إنشاء فاتورة الدفع، حاول لاحقاً 🙏")
         return
 
-    await db.create_pending_subscription(
-        invoice_id=invoice["id"],
-        telegram_user={"id": user.id, "name": user.full_name, "username": user.username},
-        group=group,
-        group_id=group_id,
-        plan_key=plan_key,
-    )
+    if code_purchase:
+        await db.create_code_order(invoice["id"], tg_user, plan_key)
+    else:
+        await db.create_pending_subscription(
+            invoice_id=invoice["id"],
+            telegram_user=tg_user,
+            group=group,
+            group_id=group_id,
+            plan_key=plan_key,
+        )
 
     hosted_url = invoice.get("url") or invoice.get("hosted_url") or invoice.get("hosted_page_url")
     if not hosted_url:
@@ -371,6 +380,41 @@ async def guard_group_messages(update: Update, context: ContextTypes.DEFAULT_TYP
     group = await db.get_linked_group(chat.id)
     if group is None:
         return  # القروب غير مربوط: البوت لا يتدخل
+
+    # كود اشتراك (لمن اشترى من البوت مباشرة) مكتوب في القروب
+    if message.text and db.looks_like_redeem_code(message.text):
+        status, data = await db.redeem_code(
+            message.text, {"id": user.id, "name": user.full_name, "username": user.username}, chat.id
+        )
+        if status == db.REDEEM_OK:
+            # الكود صحيح: لا نحذف رسالته، ونؤكد التفعيل
+            reply = await context.bot.send_message(
+                chat_id=chat.id,
+                text=(
+                    f"✅ {user.mention_html()} تم تفعيل اشتراكك بنجاح!\n"
+                    f"📦 الباقة: {html.escape(data.get('planName') or '')}\n"
+                    f"📅 صالح حتى: {_fmt_date(data.get('endDate'))}\n"
+                    "يمكنك الآن الكتابة في المجموعة بكل حرية 🎉"
+                ),
+                parse_mode=ParseMode.HTML,
+            )
+            await schedule_warning_delete(reply.chat_id, reply.message_id)
+            return
+        if not await _is_exempt(update, context) and not await db.is_user_active(user.id, chat.id):
+            try:
+                await message.delete()
+            except TelegramError:
+                pass
+        reason = "⛔ هذا الكود مستخدم مسبقاً، كل كود يُستخدم مرة واحدة فقط." if status == db.REDEEM_USED \
+            else "❌ الكود غير صحيح، تأكد منه وأعد كتابته."
+        reply = await context.bot.send_message(
+            chat_id=chat.id,
+            text=f"{user.mention_html()}\n{reason}",
+            parse_mode=ParseMode.HTML,
+            reply_markup=_subscribe_keyboard(context.bot.username, chat.id),
+        )
+        await schedule_warning_delete(reply.chat_id, reply.message_id)
+        return
 
     if await _is_exempt(update, context):
         return

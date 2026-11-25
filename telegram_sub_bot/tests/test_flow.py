@@ -96,6 +96,7 @@ def make_update(user_id, chat_type=ChatType.SUPERGROUP, chat_id=GROUP_ID):
     message.delete = AsyncMock()
     message.sender_chat = None
     message.is_automatic_forward = False
+    message.text = None
     user = MagicMock(id=user_id, is_bot=False, full_name="عضو تجريبي", username="member1")
     user.mention_html.return_value = "<a>عضو</a>"
     chat = SimpleNamespace(id=chat_id, type=chat_type, title="قروب عقارات")
@@ -262,6 +263,85 @@ async def test_full_flow(monkeypatch):
     invoices["inv_3"].update(status="paid", amount=100)
     assert (await hook({"type": "invoice_paid", "data": {"id": "inv_3"}, "secret_token": "test-secret"}, None))[1]["status"] == "amount_mismatch"
 
+    # --- شراء من البوت مباشرة (ليس عضواً في أي قروب) -> كود بعد الدفع يُكتب في القروب ---
+    from telegram import ChatMemberLeft
+
+    buyer = 444
+    outsider = {buyer: ChatMemberLeft(user=User(buyer, "x", False))}
+    upd = make_update(buyer, chat_type=ChatType.PRIVATE, chat_id=buyer)
+    await bot_handlers.start_command(upd, make_ctx([], outsider))
+    kw = upd.effective_message.reply_text.call_args.kwargs
+    assert "قم باختيار إحدى باقات الاشتراك" in kw["text"] and "plan|0|plan_3m" in str(kw["reply_markup"].to_dict())
+
+    async def choose_as(user_id, group, plan_key):
+        query = MagicMock()
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        query.data = f"plan|{group}|{plan_key}"
+        query.from_user = MagicMock(id=user_id, full_name="مشتري", username="buyer1")
+        await bot_handlers.choose_plan_callback(SimpleNamespace(callback_query=query), make_ctx())
+        return query, f"inv_{len(invoices)}"
+
+    q, inv_code = await choose_as(buyer, 0, "plan_3m")
+    assert "checkout.moyasar.com" in str(q.edit_message_text.call_args.kwargs["reply_markup"].to_dict())
+    assert db.db().collection("codeOrders").document(inv_code).get().to_dict()["status"] == "pending"
+    assert not db.db().collection("subscriptions").document(inv_code).get().exists
+    assert (await hook({"type": "invoice_paid", "data": {"id": inv_code}, "secret_token": "test-secret"}, None))[1]["status"] == "not_paid"
+
+    invoices[inv_code].update(status="paid", payments=[{"id": "pay_code1", "status": "paid", "source": {}}])
+    notify_ctx.bot.send_message.reset_mock()
+    assert (await hook({"type": "payment_paid", "data": {"invoice_id": inv_code}, "secret_token": "test-secret"}, None))[1]["status"] == "ok"
+    sent = notify_ctx.bot.send_message.call_args.kwargs
+    code1 = db.db().collection("codeOrders").document(inv_code).get().to_dict()["code"]
+    assert sent["chat_id"] == buyer and db.format_redeem_code(code1) in sent["text"] and "مرة واحدة" in sent["text"]
+    # إعادة الإشعار لا تولّد كوداً جديداً ولا ترسله مرة ثانية
+    notify_ctx.bot.send_message.reset_mock()
+    assert (await hook({"type": "invoice_paid", "data": {"id": inv_code}, "secret_token": "test-secret"}, None))[1]["status"] == "already"
+    notify_ctx.bot.send_message.assert_not_awaited()
+    assert db.db().collection("codeOrders").document(inv_code).get().to_dict()["code"] == code1
+    assert db.format_redeem_code(code1) in await app_logic.payment_callback_html(None, inv_code)
+
+    # كل عملية دفع لها كود جديد مختلف
+    _, inv_code2 = await choose_as(buyer, 0, "plan_6m")
+    invoices[inv_code2].update(status="paid", payments=[{"id": "pay_code2", "status": "paid", "source": {}}])
+    assert (await hook({"type": "invoice_paid", "data": {"id": inv_code2}, "secret_token": "test-secret"}, None))[1]["status"] == "ok"
+    code2 = db.db().collection("codeOrders").document(inv_code2).get().to_dict()["code"]
+    assert code2 != code1
+
+    # الكود الصحيح داخل القروب: لا تُحذف رسالته ويتفعّل اشتراكه بمدة الباقة
+    upd = make_update(buyer)
+    upd.effective_message.text = db.format_redeem_code(code1).lower()
+    ctx = make_ctx(members=admins)
+    await bot_handlers.guard_group_messages(upd, ctx)
+    upd.effective_message.delete.assert_not_awaited()
+    assert "تم تفعيل اشتراكك" in ctx.bot.send_message.call_args.kwargs["text"]
+    sub = db.db().collection("subscriptions").document(inv_code).get().to_dict()
+    assert sub["status"] == "active" and sub["groupId"] == GROUP_ID and sub["ownerUid"] == owner_uid
+    assert sub["telegramUserId"] == buyer and sub["source"] == "code" and sub["amount"] == 50.0
+    assert 89 <= (sub["endDate"] - db.utcnow()).days <= 90
+
+    # بعدها يكتب عادي بدون حذف
+    db.clear_caches()
+    upd = make_update(buyer)
+    upd.effective_message.text = "السلام عليكم"
+    await bot_handlers.guard_group_messages(upd, make_ctx(members=admins))
+    upd.effective_message.delete.assert_not_awaited()
+
+    # نفس الكود مرة ثانية (من شخص آخر): يُحذف ويُرفض
+    upd = make_update(555)
+    upd.effective_message.text = db.format_redeem_code(code1)
+    ctx = make_ctx(members=admins)
+    await bot_handlers.guard_group_messages(upd, ctx)
+    upd.effective_message.delete.assert_awaited_once()
+    assert "مستخدم مسبقاً" in ctx.bot.send_message.call_args.kwargs["text"]
+    # كود غير صحيح: يُحذف ويُرفض
+    upd = make_update(555)
+    upd.effective_message.text = "ABCD-EFGH"
+    ctx = make_ctx(members=admins)
+    await bot_handlers.guard_group_messages(upd, ctx)
+    upd.effective_message.delete.assert_awaited_once()
+    assert "غير صحيح" in ctx.bot.send_message.call_args.kwargs["text"]
+
     # --- config.js ---
     js = await app_logic.config_js({"firestore": "", "auth": ""})
     assert "window.CLOUD_CONFIG" in js and "CloudTestBot" in js and "plan_3m" in js
@@ -275,7 +355,7 @@ async def test_full_flow(monkeypatch):
     for doc in db.db().collection("subscriptions").where("status", "==", "active").stream():
         doc.reference.update({"endDate": db.utcnow() - dt.timedelta(minutes=1)})
     ctx = make_ctx()
-    assert await bot_handlers.run_expiry(ctx.bot) == 2
+    assert await bot_handlers.run_expiry(ctx.bot) == 3
     statuses = {d.id: d.to_dict()["status"] for d in db.db().collection("subscriptions").stream()}
     assert statuses["inv_1"] == "expired" and statuses["inv_2"] == "expired"
     upd = make_update(MEMBER_TG)

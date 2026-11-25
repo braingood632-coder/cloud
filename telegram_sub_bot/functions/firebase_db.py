@@ -20,6 +20,7 @@ import asyncio
 import datetime as dt
 import logging
 import os
+import secrets
 import time
 from typing import Any, Optional
 
@@ -28,7 +29,15 @@ from firebase_admin import auth as fb_auth
 from firebase_admin import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-from config import CACHE_TTL_SECONDS, LINK_CODE_TTL_MINUTES, PLANS, service_account_info, settings
+from config import (
+    CACHE_TTL_SECONDS,
+    LINK_CODE_TTL_MINUTES,
+    PLANS,
+    REDEEM_CODE_ALPHABET,
+    REDEEM_CODE_LENGTH,
+    service_account_info,
+    settings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -419,6 +428,180 @@ async def list_user_active_subscriptions(telegram_user_id: int) -> list[dict]:
         return [d.to_dict() for d in docs if (d.to_dict().get("endDate") or now) >= now]
 
     return await _run(_sync)
+
+
+# ---------------------------------------------------------------------------
+# الشراء من البوت مباشرة (بدون قروب): طلب دفع (codeOrders) -> بعد الدفع كود (redeemCodes)
+# الكود يُكتب داخل أي قروب مربوط فيتفعّل الاشتراك بمدة الباقة. كل كود يُستخدم مرة واحدة،
+# وكل عملية دفع لها كود جديد مختلف.
+# ---------------------------------------------------------------------------
+
+ORDER_PENDING = "pending"
+ORDER_PAID = "paid"
+ORDER_REDEEMED = "redeemed"
+
+REDEEM_OK = "ok"
+REDEEM_INVALID = "invalid"
+REDEEM_USED = "used"
+REDEEM_NO_GROUP = "no_group"
+
+
+def normalize_redeem_code(text: str) -> str:
+    return "".join(ch for ch in (text or "").upper() if ch.isalnum())
+
+
+def looks_like_redeem_code(text: str) -> bool:
+    raw = (text or "").strip()
+    if not raw or len(raw) > 20:
+        return False
+    code = normalize_redeem_code(raw)
+    return len(code) == REDEEM_CODE_LENGTH and all(ch in REDEEM_CODE_ALPHABET for ch in code)
+
+
+def format_redeem_code(code: str) -> str:
+    return f"{code[:4]}-{code[4:]}"
+
+
+async def create_code_order(invoice_id: str, telegram_user: dict, plan_key: str) -> None:
+    plan = PLANS[plan_key]
+
+    def _sync():
+        db().collection("codeOrders").document(invoice_id).set(
+            {
+                "invoiceId": invoice_id,
+                "buyerTelegramId": telegram_user["id"],
+                "buyerName": telegram_user.get("name", ""),
+                "buyerUsername": telegram_user.get("username") or "",
+                "planKey": plan_key,
+                "planName": plan["name"],
+                "planDays": plan["days"],
+                "amount": plan["price"],
+                "status": ORDER_PENDING,
+                "createdAt": utcnow(),
+            }
+        )
+
+    await _run(_sync)
+
+
+async def get_code_order(invoice_id: str) -> Optional[dict]:
+    def _sync():
+        snap = db().collection("codeOrders").document(invoice_id).get()
+        return snap.to_dict() if snap.exists else None
+
+    return await _run(_sync)
+
+
+def _new_code() -> str:
+    return "".join(secrets.choice(REDEEM_CODE_ALPHABET) for _ in range(REDEEM_CODE_LENGTH))
+
+
+def _mark_code_order_paid_sync(invoice_id: str, payment_id: Optional[str]) -> tuple[str, Optional[dict]]:
+    """يعلّم الطلب مدفوعاً ويولّد له كوداً فريداً واحداً. يرجع ('new'|'already', الطلب)."""
+    client = db()
+    order_ref = client.collection("codeOrders").document(invoice_id)
+
+    for _ in range(5):  # احتمال تكرار الكود ضئيل جداً، نعيد المحاولة احتياطاً
+        code = _new_code()
+        code_ref = client.collection("redeemCodes").document(code)
+
+        @firestore.transactional
+        def txn(transaction):
+            snap = order_ref.get(transaction=transaction)
+            if not snap.exists:
+                return "missing", None
+            data = snap.to_dict()
+            if data.get("code"):
+                return "already", data
+            if code_ref.get(transaction=transaction).exists:
+                return "retry", None
+            now = utcnow()
+            update = {"status": ORDER_PAID, "code": code, "paidAt": now}
+            if payment_id:
+                update["paymentId"] = payment_id
+            transaction.update(order_ref, update)
+            transaction.set(code_ref, {"invoiceId": invoice_id, "used": False, "createdAt": now})
+            return "new", data | update
+
+        status, data = txn(client.transaction())
+        if status != "retry":
+            return status, data
+    raise RuntimeError("تعذر توليد كود فريد")
+
+
+async def mark_code_order_paid(invoice_id: str, payment_id: Optional[str] = None) -> tuple[str, Optional[dict]]:
+    return await _run(_mark_code_order_paid_sync, invoice_id, payment_id)
+
+
+def _redeem_code_sync(code: str, telegram_user: dict, group_id: int) -> tuple[str, Optional[dict]]:
+    client = db()
+    code_ref = client.collection("redeemCodes").document(code)
+    code_snap = code_ref.get()
+    if not code_snap.exists:
+        return REDEEM_INVALID, None
+    if code_snap.to_dict().get("used"):
+        return REDEEM_USED, None
+
+    group_snap = client.collection("groups").document(str(group_id)).get()
+    group = group_snap.to_dict() if group_snap.exists else None
+    if group is None or not group.get("active", True):
+        return REDEEM_NO_GROUP, None
+
+    invoice_id = code_snap.to_dict()["invoiceId"]
+    order_ref = client.collection("codeOrders").document(invoice_id)
+    order = order_ref.get().to_dict() or {}
+
+    tg_id = int(telegram_user["id"])
+    current_end = _active_end_date_sync(tg_id, int(group_id))
+    now = utcnow()
+    start = current_end if current_end and current_end > now else now
+    end = start + dt.timedelta(days=int(order.get("planDays") or PLANS.get(order.get("planKey"), {}).get("days", 30)))
+    owner_share, commission = compute_shares(float(order["amount"]))
+    sub_ref = client.collection("subscriptions").document(invoice_id)
+
+    @firestore.transactional
+    def txn(transaction):
+        fresh = code_ref.get(transaction=transaction).to_dict()
+        if fresh.get("used"):
+            return REDEEM_USED, None
+        sub = {
+            "invoiceId": invoice_id,
+            "telegramUserId": tg_id,
+            "telegramName": telegram_user.get("name", ""),
+            "telegramUsername": telegram_user.get("username") or "",
+            "groupId": int(group_id),
+            "groupTitle": group.get("title", ""),
+            "ownerUid": group["ownerUid"],
+            "planKey": order.get("planKey"),
+            "planName": order.get("planName"),
+            "planDays": order.get("planDays"),
+            "amount": order["amount"],
+            "ownerShare": owner_share,
+            "commission": commission,
+            "status": "active",
+            "source": "code",
+            "redeemCode": code,
+            "buyerTelegramId": order.get("buyerTelegramId"),
+            "createdAt": order.get("createdAt") or now,
+            "paidAt": order.get("paidAt") or now,
+            "startDate": start,
+            "endDate": end,
+        }
+        if order.get("paymentId"):
+            sub["paymentId"] = order["paymentId"]
+        transaction.set(sub_ref, sub)
+        transaction.update(code_ref, {"used": True, "usedBy": tg_id, "usedAt": now, "groupId": int(group_id)})
+        transaction.update(order_ref, {"status": ORDER_REDEEMED, "redeemedBy": tg_id, "redeemedAt": now})
+        return REDEEM_OK, sub
+
+    return txn(client.transaction())
+
+
+async def redeem_code(code: str, telegram_user: dict, group_id: int) -> tuple[str, Optional[dict]]:
+    status, data = await _run(_redeem_code_sync, normalize_redeem_code(code), telegram_user, group_id)
+    if status == REDEEM_OK and data:
+        _active_cache.pop((data["telegramUserId"], data["groupId"]))
+    return status, data
 
 
 # ---------------------------------------------------------------------------
