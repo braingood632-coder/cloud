@@ -24,8 +24,7 @@ $$(".logout").forEach((b) => b.addEventListener("click", () => signOut(auth).the
 const page = () => (PAGES.some((p) => p[0] === location.hash.slice(1)) ? location.hash.slice(1) : "overview");
 
 function renderNav() {
-  const html = PAGES.map(([id, l, i]) => `<a href="#${id}" class="${page() === id ? "active" : ""}"><span>${i}</span>${l}</a>`).join("")
-    + '<a href="/dashboard.html"><span>↩️</span>لوحتي كصاحب قروب</a>';
+  const html = PAGES.map(([id, l, i]) => `<a href="#${id}" class="${page() === id ? "active" : ""}"><span>${i}</span>${l}</a>`).join("");
   $("#nav").innerHTML = html;
   $("#mnav").innerHTML = html;
 }

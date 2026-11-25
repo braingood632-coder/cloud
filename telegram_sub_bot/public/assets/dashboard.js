@@ -36,9 +36,8 @@ function renderNav() {
   const html = items
     .map(([id, label, icon]) => `<a href="#${id}" class="${page() === id ? "active" : ""}"><span>${icon}</span>${label}</a>`)
     .join("");
-  const admin = state.owner?.role === "admin" ? `<a href="/admin.html"><span>🛡️</span>لوحة الأدمن</a>` : "";
-  $("#nav").innerHTML = html + admin;
-  $("#mnav").innerHTML = html + admin;
+  $("#nav").innerHTML = html;
+  $("#mnav").innerHTML = html;
 }
 
 window.addEventListener("hashchange", () => { renderNav(); render(); window.scrollTo(0, 0); });
@@ -61,6 +60,8 @@ if (!configured) {
       $("#main").innerHTML = '<div class="alert alert-error">هذا الحساب غير مفعّل. تواصل مع إدارة المنصة.</div>';
       return;
     }
+    // الأدمن يدخل مباشرة على لوحة الأدمن
+    if (snap.data()?.role === "admin") return location.replace("/admin.html");
 
     onSnapshot(ownerRef, (s) => {
       state.owner = s.data();
