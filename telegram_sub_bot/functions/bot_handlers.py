@@ -68,10 +68,12 @@ def _subscribe_keyboard(bot_username: str, chat_id: int) -> InlineKeyboardMarkup
     )
 
 
-def _plans_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+def _plans_keyboard(chat_id: int, group: Optional[dict] = None) -> InlineKeyboardMarkup:
+    """أزرار الباقات بأسعار هذا القروب (يحددها الأدمن لكل قروب، وإلا السعر الافتراضي)."""
     rows = []
-    for key, plan in PLANS.items():
-        label = f"{plan['name']} -> {plan['price']:.0f} ريال -> {plan['days']} يوم"
+    for key, plan in db.group_plans(group).items():
+        price = f"{plan['price']:.2f}".rstrip("0").rstrip(".")
+        label = f"{plan['name']} -> {price} ريال -> {plan['days']} يوم"
         rows.append([InlineKeyboardButton(label, callback_data=f"plan|{chat_id}|{key}")])
     return InlineKeyboardMarkup(rows)
 
@@ -179,29 +181,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await message.reply_text(**await _plans_message(group_id, group, user_id))
         return
 
-    # /start بدون رابط: نبحث عن المجموعات المربوطة التي هو عضو فيها
-    groups = await _user_groups(context, user_id)
-    if len(groups) == 1:
-        group_id, group = groups[0]
-        await message.reply_text(**await _plans_message(group_id, group, user_id))
-        return
-    if len(groups) > 1:
-        rows = [[InlineKeyboardButton(f"👥 {g.get('title', '')}", callback_data=f"grp|{gid}")] for gid, g in groups]
-        await message.reply_text(
-            f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🎉\n\nاختر المجموعة التي ترغب في الاشتراك بها 👇",
-            reply_markup=InlineKeyboardMarkup(rows),
-        )
-        return
+    # دخل البوت مباشرة (مو من زر القروب): لا نعرض اشتراك؛ الأسعار تختلف حسب القروب
+    await message.reply_text(_ENTER_VIA_GROUP)
 
-    # دخل البوت مباشرة وليس عضواً في أي قروب مربوط: يشتري عادي، وبعد الدفع يوصله كود يكتبه في القروب
-    await message.reply_text(
-        text=(
-            f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🤖☁️\n\n"
-            "📦 قم باختيار إحدى باقات الاشتراك التالية 📦\n\n"
-            "بعد الدفع يوصلك كود اشتراك (يُستخدم مرة واحدة)، اكتبه داخل القروب ويتفعّل اشتراكك فوراً."
-        ),
-        reply_markup=_plans_keyboard(CODE_GROUP_ID),
-    )
+
+_ENTER_VIA_GROUP = (
+    f"أهلاً وسهلاً بك في بوت {settings.BOT_NAME} 🤖☁️\n\n"
+    "🔒 الكتابة في المجموعة متاحة للمشتركين فقط.\n\n"
+    "✅ للاشتراك: ارجع للمجموعة اللي تبي تكتب فيها واضغط زر «اشترك» الموجود داخلها، "
+    "ويفتح لك البوت باقات هذي المجموعة وأسعارها.\n\n"
+    "📋 لعرض اشتراكاتك: /mysubs\n"
+    f"🛟 الدعم الفني: @{settings.SUPPORT_USERNAME}"
+)
 
 
 async def _plans_message(group_id: int, group: dict, user_id: int) -> dict:
@@ -213,7 +204,7 @@ async def _plans_message(group_id: int, group: dict, user_id: int) -> dict:
     )
     return {
         "text": f"{current}📦 قم باختيار إحدى باقات الاشتراك التالية 📦",
-        "reply_markup": _plans_keyboard(group_id),
+        "reply_markup": _plans_keyboard(group_id, group),
     }
 
 
@@ -272,10 +263,14 @@ async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("طلب غير صالح، أعد المحاولة من زر الاشتراك في القروب.")
         return
 
-    plan = PLANS.get(plan_key)
-    code_purchase = group_id == CODE_GROUP_ID  # شراء من البوت مباشرة -> كود بعد الدفع
-    group = None if code_purchase else await db.get_linked_group(group_id)
-    if plan is None or (group is None and not code_purchase):
+    if group_id == CODE_GROUP_ID:
+        # أزرار قديمة للشراء بدون قروب: الاشتراك الآن من زر القروب فقط (الأسعار حسب القروب)
+        await query.edit_message_text(_ENTER_VIA_GROUP)
+        return
+
+    group = await db.get_linked_group(group_id)
+    plan = db.group_plans(group).get(plan_key) if group else None  # بسعر هذا القروب
+    if plan is None:
         await query.edit_message_text("عذراً، هذه الباقة أو هذا القروب لم يعد متاحاً.")
         return
 
@@ -284,7 +279,7 @@ async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         invoice = await moyasar_client.create_invoice(
             amount_sar=plan["price"],
-            description=f"اشتراك {plan['name']}" + ("" if code_purchase else f" - {group.get('title', '')}"),
+            description=f"اشتراك {plan['name']} - {group.get('title', '')}",
             telegram_user_id=user.id,
             group_id=group_id,
             plan_key=plan_key,
@@ -294,16 +289,13 @@ async def choose_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("حدث خطأ أثناء إنشاء فاتورة الدفع، حاول لاحقاً 🙏")
         return
 
-    if code_purchase:
-        await db.create_code_order(invoice["id"], tg_user, plan_key)
-    else:
-        await db.create_pending_subscription(
-            invoice_id=invoice["id"],
-            telegram_user=tg_user,
-            group=group,
-            group_id=group_id,
-            plan_key=plan_key,
-        )
+    await db.create_pending_subscription(
+        invoice_id=invoice["id"],
+        telegram_user=tg_user,
+        group=group,
+        group_id=group_id,
+        plan_key=plan_key,
+    )
 
     hosted_url = invoice.get("url") or invoice.get("hosted_url") or invoice.get("hosted_page_url")
     if not hosted_url:

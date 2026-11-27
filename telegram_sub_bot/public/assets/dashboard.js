@@ -25,6 +25,11 @@ const state = {
 
 $$(".logo").forEach((el) => (el.innerHTML = ICONS.cloud));
 $$(".logout").forEach((b) => b.addEventListener("click", () => signOut(auth).then(() => location.replace("/"))));
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("[data-logout]")) return;
+  e.preventDefault();
+  signOut(auth).then(() => location.replace("/"));
+});
 
 const page = () => {
   const h = location.hash.replace("#", "");
@@ -37,7 +42,8 @@ function renderNav() {
     .map(([id, label, icon]) => `<a href="#${id}" class="${page() === id ? "active" : ""}"><span>${icon}</span>${label}</a>`)
     .join("");
   $("#nav").innerHTML = html;
-  $("#mnav").innerHTML = html;
+  // على الجوال القائمة الجانبية مخفية، فنضيف زر الخروج في القائمة العلوية
+  $("#mnav").innerHTML = html + '<a href="#" data-logout><span>🚪</span>تسجيل الخروج</a>';
 }
 
 window.addEventListener("hashchange", () => { renderNav(); render(); window.scrollTo(0, 0); });

@@ -201,9 +201,13 @@ async def test_full_flow(monkeypatch):
     upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
     await bot_handlers.start_command(upd, make_ctx([f"sub_{GROUP_ID}"]))
     assert "قم باختيار إحدى باقات الاشتراك" in upd.effective_message.reply_text.call_args.kwargs["text"]
+    kb = str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
+    assert f"plan|{GROUP_ID}|plan_3m" in kb and "50 ريال" in kb  # السعر الافتراضي
+    # بدون زر القروب: لا اشتراك، يُطلب منه الدخول من القروب (حتى لو كان عضواً)
     upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
     await bot_handlers.start_command(upd, make_ctx([], admins))
-    assert f"plan|{GROUP_ID}|plan_6m" in str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
+    args = upd.effective_message.reply_text.call_args
+    assert "ارجع للمجموعة" in args.args[0] and "reply_markup" not in args.kwargs
 
     # --- اختيار الباقة -> فاتورة ---
     invoices = {}
@@ -275,49 +279,43 @@ async def test_full_flow(monkeypatch):
     assert db.db().collection("subscriptions").document("inv_3").get().to_dict()["status"] == "canceled"
     assert db.db().collection("subscriptions").document("inv_1").get().to_dict()["status"] == "active"  # المدفوع لا يتأثر
 
-    # --- شراء من البوت مباشرة (ليس عضواً في أي قروب) -> كود بعد الدفع يُكتب في القروب ---
+    # --- الدخول للبوت مباشرة (ليس من زر القروب): لا اشتراك، يُطلب منه الدخول من القروب ---
     from telegram import ChatMemberLeft
 
     buyer = 444
     outsider = {buyer: ChatMemberLeft(user=User(buyer, "x", False))}
     upd = make_update(buyer, chat_type=ChatType.PRIVATE, chat_id=buyer)
     await bot_handlers.start_command(upd, make_ctx([], outsider))
-    kw = upd.effective_message.reply_text.call_args.kwargs
-    assert "قم باختيار إحدى باقات الاشتراك" in kw["text"] and "plan|0|plan_3m" in str(kw["reply_markup"].to_dict())
+    args = upd.effective_message.reply_text.call_args
+    assert "ارجع للمجموعة" in args.args[0] and "reply_markup" not in args.kwargs
+    # أزرار قديمة للشراء بدون قروب (plan|0|...) لا تنشئ فاتورة
+    before = len(invoices)
+    query = MagicMock()
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.data = "plan|0|plan_3m"
+    query.from_user = MagicMock(id=buyer, full_name="مشتري", username="buyer1")
+    await bot_handlers.choose_plan_callback(SimpleNamespace(callback_query=query), make_ctx())
+    assert "ارجع للمجموعة" in query.edit_message_text.call_args.args[0] and len(invoices) == before
 
-    async def choose_as(user_id, group, plan_key):
-        query = MagicMock()
-        query.answer = AsyncMock()
-        query.edit_message_text = AsyncMock()
-        query.data = f"plan|{group}|{plan_key}"
-        query.from_user = MagicMock(id=user_id, full_name="مشتري", username="buyer1")
-        await bot_handlers.choose_plan_callback(SimpleNamespace(callback_query=query), make_ctx())
-        return query, f"inv_{len(invoices)}"
+    # --- أكواد قديمة (اشتُريت قبل التعديل) ما زالت تُفعَّل في القروب ---
+    async def legacy_code_order(inv, plan_key):
+        await db.create_code_order(inv, {"id": buyer, "name": "مشتري", "username": "buyer1"}, plan_key)
+        invoices[inv] = {"id": inv, "status": "paid", "amount": int(db.PLANS[plan_key]["price"] * 100), "currency": "SAR",
+                         "payments": [{"id": "pay_" + inv, "status": "paid", "source": {}}]}
+        notify_ctx.bot.send_message.reset_mock()
+        assert (await hook({"type": "invoice_paid", "data": {"id": inv}, "secret_token": "test-secret"}, None))[1]["status"] == "ok"
+        return db.db().collection("codeOrders").document(inv).get().to_dict()["code"]
 
-    q, inv_code = await choose_as(buyer, 0, "plan_3m")
-    assert "checkout.moyasar.com" in str(q.edit_message_text.call_args.kwargs["reply_markup"].to_dict())
-    assert db.db().collection("codeOrders").document(inv_code).get().to_dict()["status"] == "pending"
-    assert not db.db().collection("subscriptions").document(inv_code).get().exists
-    assert (await hook({"type": "invoice_paid", "data": {"id": inv_code}, "secret_token": "test-secret"}, None))[1]["status"] == "not_paid"
-
-    invoices[inv_code].update(status="paid", payments=[{"id": "pay_code1", "status": "paid", "source": {}}])
-    notify_ctx.bot.send_message.reset_mock()
-    assert (await hook({"type": "payment_paid", "data": {"invoice_id": inv_code}, "secret_token": "test-secret"}, None))[1]["status"] == "ok"
+    inv_code = "inv_code1"
+    code1 = await legacy_code_order(inv_code, "plan_3m")
     sent = notify_ctx.bot.send_message.call_args.kwargs
-    code1 = db.db().collection("codeOrders").document(inv_code).get().to_dict()["code"]
     assert sent["chat_id"] == buyer and db.format_redeem_code(code1) in sent["text"] and "مرة واحدة" in sent["text"]
-    # إعادة الإشعار لا تولّد كوداً جديداً ولا ترسله مرة ثانية
     notify_ctx.bot.send_message.reset_mock()
     assert (await hook({"type": "invoice_paid", "data": {"id": inv_code}, "secret_token": "test-secret"}, None))[1]["status"] == "already"
     notify_ctx.bot.send_message.assert_not_awaited()
-    assert db.db().collection("codeOrders").document(inv_code).get().to_dict()["code"] == code1
     assert db.format_redeem_code(code1) in await app_logic.payment_callback_html(None, inv_code)
-
-    # كل عملية دفع لها كود جديد مختلف
-    _, inv_code2 = await choose_as(buyer, 0, "plan_6m")
-    invoices[inv_code2].update(status="paid", payments=[{"id": "pay_code2", "status": "paid", "source": {}}])
-    assert (await hook({"type": "invoice_paid", "data": {"id": inv_code2}, "secret_token": "test-secret"}, None))[1]["status"] == "ok"
-    code2 = db.db().collection("codeOrders").document(inv_code2).get().to_dict()["code"]
+    code2 = await legacy_code_order("inv_code2", "plan_6m")
     assert code2 != code1
 
     # الكود الصحيح داخل القروب: لا تُحذف رسالته ويتفعّل اشتراكه بمدة الباقة
@@ -353,6 +351,29 @@ async def test_full_flow(monkeypatch):
     await bot_handlers.guard_group_messages(upd, ctx)
     upd.effective_message.delete.assert_awaited_once()
     assert "غير صحيح" in ctx.bot.send_message.call_args.kwargs["text"]
+
+    # --- أسعار مخصصة لكل قروب (يحددها الأدمن) ---
+    db.db().collection("groups").document(str(GROUP_ID)).update({"prices": {"plan_3m": 90}})
+    db.clear_caches()
+    upd = make_update(MEMBER_TG, chat_type=ChatType.PRIVATE, chat_id=MEMBER_TG)
+    await bot_handlers.start_command(upd, make_ctx([f"sub_{GROUP_ID}"]))
+    kb = str(upd.effective_message.reply_text.call_args.kwargs["reply_markup"].to_dict())
+    assert "90 ريال -> 90 يوم" in kb and "80 ريال -> 180 يوم" in kb  # المخصص + الافتراضي
+    known = set(invoices)
+    await choose("plan_3m")
+    last = (set(invoices) - known).pop()
+    assert invoices[last]["amount"] == 9000
+    sub_p = db.db().collection("subscriptions").document(last).get().to_dict()
+    assert sub_p["amount"] == 90.0 and sub_p["ownerShare"] == 81.0 and sub_p["commission"] == 9.0
+    # كود الربط يحمل الأسعار فينسخها للقروب عند الربط
+    create_code("PRIC2345", owner_uid)
+    db.db().collection("linkCodes").document("PRIC2345").update({"prices": {"plan_6m": 150, "bad": 5}})
+    status, linked = await db.consume_link_code("PRIC2345", -100888, "قروب الأسعار", ADMIN_TG)
+    assert status == db.LINK_OK and linked["prices"] == {"plan_6m": 150.0}
+    plans = db.group_plans(db.db().collection("groups").document("-100888").get().to_dict())
+    assert plans["plan_6m"]["price"] == 150.0 and plans["plan_3m"]["price"] == 50.0
+    db.db().collection("groups").document("-100888").update({"active": False})
+    db.clear_caches()
 
     # --- config.js ---
     js = await app_logic.config_js({"firestore": "", "auth": ""})

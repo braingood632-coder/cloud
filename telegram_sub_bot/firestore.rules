@@ -17,6 +17,15 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/owners/$(request.auth.uid)).data.role == 'admin';
     }
 
+    // أسعار القروب المخصصة: {plan_3m: رقم, plan_6m: رقم} (اختيارية)
+    function validPrice(p, key) {
+      return !(key in p) || (p[key] is number && p[key] >= 1 && p[key] <= 10000);
+    }
+    function validPrices(p) {
+      return p is map && p.keys().hasOnly(['plan_3m', 'plan_6m'])
+        && validPrice(p, 'plan_3m') && validPrice(p, 'plan_6m');
+    }
+
     function profileFields() {
       return ['name', 'phone', 'telegramUsername', 'bankName', 'iban', 'accountHolder', 'updatedAt'];
     }
@@ -44,7 +53,8 @@ service cloud.firestore {
     match /linkCodes/{code} {
       allow create: if isAdmin()
         && code.matches('^[A-Z0-9]{8}$')
-        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt', 'prices'])
+        && (!('prices' in request.resource.data) || validPrices(request.resource.data.prices))
         && request.resource.data.ownerUid is string
         && exists(/databases/$(database)/documents/owners/$(request.resource.data.ownerUid))
         && request.resource.data.createdAt == request.time;
@@ -56,8 +66,9 @@ service cloud.firestore {
       allow read: if signedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
       // صاحب القروب يشاهد فقط؛ الأدمن وحده يشغّل/يوقف التذكير أو يفك الربط
       allow update: if isAdmin()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['remindersEnabled'])
-        && request.resource.data.remindersEnabled is bool;
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['remindersEnabled', 'prices'])
+        && (!('remindersEnabled' in request.resource.data) || request.resource.data.remindersEnabled is bool)
+        && (!('prices' in request.resource.data) || validPrices(request.resource.data.prices));
       allow delete: if isAdmin();
       allow create: if false;
     }

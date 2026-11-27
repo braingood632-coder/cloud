@@ -21,12 +21,18 @@ const state = { user: null, owners: [], groups: [], subs: [], payouts: [], loade
 
 $$(".logo").forEach((el) => (el.innerHTML = ICONS.cloud));
 $$(".logout").forEach((b) => b.addEventListener("click", () => signOut(auth).then(() => location.replace("/"))));
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("[data-logout]")) return;
+  e.preventDefault();
+  signOut(auth).then(() => location.replace("/"));
+});
 const page = () => (PAGES.some((p) => p[0] === location.hash.slice(1)) ? location.hash.slice(1) : "overview");
 
 function renderNav() {
   const html = PAGES.map(([id, l, i]) => `<a href="#${id}" class="${page() === id ? "active" : ""}"><span>${i}</span>${l}</a>`).join("");
   $("#nav").innerHTML = html;
-  $("#mnav").innerHTML = html;
+  // على الجوال القائمة الجانبية مخفية، فنضيف زر الخروج في القائمة العلوية
+  $("#mnav").innerHTML = html + '<a href="#" data-logout><span>🚪</span>تسجيل الخروج</a>';
 }
 window.addEventListener("hashchange", () => { renderNav(); render(); });
 
@@ -79,7 +85,7 @@ if (configured) {
 function render() {
   if (state.loaded < 4) return;
   // لا نعيد رسم صفحات النماذج أثناء الكتابة فيها
-  if ((page() === "accounts" && $("#newUserForm")) || (page() === "link" && $("#linkPanel"))) {
+  if ((page() === "accounts" && $("#newUserForm")) || (page() === "link" && $("#linkPanel")) || (page() === "groups" && $("#priceForm"))) {
     if (page() === "link") checkLinked();
     return;
   }
@@ -212,6 +218,36 @@ function newLinkCode() {
   return [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
 }
 
+// ---------------------------------------------------------------------------
+// أسعار الباقات لكل قروب
+// ---------------------------------------------------------------------------
+const planEntries = () => Object.entries(CFG.plans || {});
+
+function priceInputs(prefix, current) {
+  return planEntries().map(([key, p]) => `
+    <div class="field" style="min-width:150px"><label for="${prefix}_${esc(key)}">${esc(p.name)} (${esc(p.label || p.days + " يوم")}) — ريال</label>
+      <input id="${prefix}_${esc(key)}" type="number" inputmode="decimal" min="1" max="10000" step="any" class="ltr"
+        placeholder="${esc(p.price)}" value="${current && current[key] != null ? esc(current[key]) : ""}" /></div>`).join("");
+}
+
+// يرجع {plan: سعر} للخانات المعبّأة فقط، أو null لو فيه سعر غير صحيح
+function readPrices(prefix) {
+  const out = {};
+  for (const [key] of planEntries()) {
+    const raw = normDigits($(`#${prefix}_${key}`)?.value || "").trim();
+    if (!raw) continue;
+    const n = Number(raw);
+    if (!(n >= 1 && n <= 10000)) { toast("اكتب سعراً صحيحاً بين 1 و 10000 ريال"); return null; }
+    out[key] = Math.round(n * 100) / 100;
+  }
+  return out;
+}
+
+const pricesText = (g) => planEntries().map(([key, p]) => {
+  const custom = g.prices && g.prices[key] != null;
+  return `<span class="sub">${esc(p.label || p.name)}: <b>${num(custom ? g.prices[key] : p.price)}</b> ر.س${custom ? "" : " <small class='muted'>(افتراضي)</small>"}</span>`;
+}).join("");
+
 function checkLinked() {
   if (!pendingLink) return;
   const fresh = state.groups.find((g) => g.ownerUid === pendingLink.ownerUid && !pendingLink.knownGroups.has(g.id));
@@ -238,8 +274,10 @@ function link() {
           <option value="">— اختر الحساب —</option>
           ${owners.map((o) => `<option value="${esc(o.id)}" ${pendingLink?.ownerUid === o.id ? "selected" : ""}>${esc(o.name)} — ${esc(loginName(o))}</option>`).join("")}
         </select></div>
+        ${priceInputs("lp", null)}
         <button class="btn btn-primary" type="submit">🔗 إنشاء كود ربط</button>
       </form>
+      <p class="muted" style="margin-top:6px">أسعار الباقات لهذا القروب اختيارية — اتركها فاضية لاستخدام السعر الافتراضي، وتقدر تعدّلها بعدين من «كل القروبات».</p>
       ${pendingLink ? `<div class="link-box">
         <div class="panel-head"><h2>كود الربط لحساب «${esc(owner?.name || "")}»</h2><span class="muted" id="countdown"></span></div>
         <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="code ltr" id="linkCmd" dir="ltr" title="اضغط للنسخ" style="user-select:all;cursor:pointer">/link ${pendingLink.code}</span>
@@ -257,10 +295,12 @@ function link() {
     e.preventDefault();
     const ownerUid = $("#linkOwner").value;
     if (!ownerUid) return toast("اختر حساب صاحب القروب");
+    const prices = readPrices("lp");
+    if (prices === null) return;
     for (let i = 0; i < 3; i++) {
       const code = newLinkCode();
       try {
-        await setDoc(doc(db, "linkCodes", code), { ownerUid, createdAt: serverTimestamp() });
+        await setDoc(doc(db, "linkCodes", code), { ownerUid, createdAt: serverTimestamp(), ...(Object.keys(prices).length ? { prices } : {}) });
         pendingLink = { code, ownerUid, createdAt: Date.now(), knownGroups: new Set(state.groups.filter((g) => g.ownerUid === ownerUid).map((g) => g.id)) };
         link();
         return;
@@ -372,24 +412,48 @@ $("#payoutForm").addEventListener("submit", async (e) => {
   } catch (err) { onErr(err); }
 });
 
+let priceEditFor = null; // معرّف القروب الذي تُعدَّل أسعاره
+
 function groups() {
   const ownerName = (uid) => state.owners.find((o) => o.id === uid)?.name || "-";
   const now = new Date();
+  const editing = priceEditFor && state.groups.find((g) => g.id === priceEditFor);
   $("#main").innerHTML = `
     ${head("كل القروبات", `${state.groups.length} قروب`)}
+    ${editing ? `<div class="panel" id="pricePanel"><div class="panel-head"><h2>💰 أسعار الباقات — ${esc(editing.title || "")}</h2></div>
+      <form id="priceForm" class="filters" style="align-items:flex-end">
+        ${priceInputs("gp", editing.prices || {})}
+        <button class="btn btn-primary" type="submit">حفظ الأسعار</button>
+        <button class="btn btn-outline" type="button" id="priceCancel">إلغاء</button>
+      </form>
+      <p class="muted" style="margin-top:6px">اترك الخانة فاضية لاستخدام السعر الافتراضي. السعر الجديد يطلع للأعضاء في البوت خلال دقيقة، والاشتراكات السابقة ما تتغير.</p></div>` : ""}
     <div class="panel"><div class="table-wrap"><table>
-      <thead><tr><th>القروب</th><th>صاحبه</th><th>الحالة</th><th>الأعضاء</th><th>مشترك نشط</th><th>رسائل محذوفة</th><th>التذكير</th><th>تاريخ الربط</th><th></th></tr></thead>
+      <thead><tr><th>القروب</th><th>صاحبه</th><th>الحالة</th><th>الأسعار</th><th>الأعضاء</th><th>مشترك نشط</th><th>رسائل محذوفة</th><th>التذكير</th><th>تاريخ الربط</th><th></th></tr></thead>
       <tbody>${state.groups.map((g) => {
         const active = state.subs.filter((s) => String(s.groupId) === g.id && isActive(s, now)).length;
         const st = g.active === false ? '<span class="badge badge-bad">البوت خارج القروب</span>'
           : g.canDelete === false ? '<span class="badge badge-warn">بدون صلاحية حذف</span>' : '<span class="badge badge-good">يعمل</span>';
         return `<tr><td><b>${esc(g.title)}</b><span class="sub ltr">${esc(g.id)}</span></td><td>${esc(ownerName(g.ownerUid))}</td><td>${st}</td>
+          <td>${pricesText(g)}<button class="btn btn-outline btn-sm" style="margin-top:6px" data-prices="${esc(g.id)}">تعديل الأسعار</button></td>
           <td>${num(g.memberCount || 0)}</td><td>${num(active)}</td><td>${num(g.blockedMessages || 0)}</td>
           <td><label class="switch" title="رسالة التذكير كل 30 دقيقة"><input type="checkbox" data-remind="${esc(g.id)}" ${g.remindersEnabled !== false ? "checked" : ""}/><span></span></label></td>
           <td>${fmtDate(g.linkedAt)}</td>
           <td><button class="btn btn-danger btn-sm" data-unlink="${esc(g.id)}">فك الربط</button></td></tr>`;
-      }).join("") || '<tr><td colspan="9" class="empty">لا توجد قروبات</td></tr>'}</tbody>
+      }).join("") || '<tr><td colspan="10" class="empty">لا توجد قروبات</td></tr>'}</tbody>
     </table></div></div>`;
+  $$("[data-prices]").forEach((b) => b.addEventListener("click", () => { priceEditFor = b.dataset.prices; groups(); window.scrollTo(0, 0); }));
+  $("#priceCancel")?.addEventListener("click", () => { priceEditFor = null; groups(); });
+  $("#priceForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const prices = readPrices("gp");
+    if (prices === null) return;
+    try {
+      await updateDoc(doc(db, "groups", priceEditFor), { prices });
+      toast("تم حفظ أسعار القروب ✅");
+      priceEditFor = null;
+      groups();
+    } catch (err) { onErr(err); }
+  });
   $$("[data-remind]").forEach((el) => el.addEventListener("change", async () => {
     try {
       await updateDoc(doc(db, "groups", el.dataset.remind), { remindersEnabled: el.checked });

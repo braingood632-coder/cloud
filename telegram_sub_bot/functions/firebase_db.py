@@ -128,6 +128,25 @@ def clear_caches() -> None:
 # القروبات وربطها
 # ---------------------------------------------------------------------------
 
+def clean_prices(prices) -> dict:
+    """أسعار مخصصة لقروب: {plan_key: سعر} — نقبل فقط الباقات المعروفة وأسعاراً منطقية."""
+    out = {}
+    for key, value in (prices or {}).items():
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            continue
+        if key in PLANS and 1 <= price <= 10000:
+            out[key] = round(price, 2)
+    return out
+
+
+def group_plans(group: Optional[dict]) -> dict:
+    """باقات القروب: نفس الباقات الافتراضية (المدة والاسم) بسعر القروب إن حدّده الأدمن."""
+    custom = clean_prices((group or {}).get("prices"))
+    return {key: {**plan, "price": custom.get(key, plan["price"])} for key, plan in PLANS.items()}
+
+
 LINK_OK = "ok"
 LINK_INVALID = "invalid"
 LINK_EXPIRED = "expired"
@@ -162,6 +181,7 @@ def _consume_link_code_sync(code: str, chat_id: int, title: str, telegram_user_i
 
         now = utcnow()
         group_data = {
+            **({"prices": clean_prices(data.get("prices"))} if data.get("prices") else {}),
             "ownerUid": owner_uid,
             "ownerName": owner_snap.to_dict().get("name", ""),
             "title": title,
@@ -318,7 +338,7 @@ async def create_pending_subscription(
     group_id: int,
     plan_key: str,
 ) -> None:
-    plan = PLANS[plan_key]
+    plan = group_plans(group)[plan_key]  # بسعر القروب
     owner_share, commission = compute_shares(plan["price"])
 
     def _sync():
